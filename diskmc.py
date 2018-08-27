@@ -44,16 +44,24 @@ plt.ioff()
 
 class MCData:
     """
-    Class that contains data and associated info.
+    Class that contains data, uncertainties, and associated info.
     """
     
-    def __init__(self, data, stars, uncerts, bin_facts, mask_params, s_ident):
+    def __init__(self, data, stars, uncerts, bin_facts=None, mask_params=None,
+                 s_ident='no_ident'):
         """
-        Initialization code for ModObj.
+        Initialization code for MCData.
         
         Inputs:
-            
-        
+            data: list of data products (images, SED points, etc.) that will be used
+                to compute the likelihood function (i.e. will be "fit").
+            stars: list of array(y,x) integer positions for the star in each data
+                product; element should be None if not relevant (like for an SED).
+            uncerts: list of uncertainties for data products.
+            bin_facts: list of factors by which data products are spatially binned;
+                only applies to images and should be None for all others.
+            mask_params: not implemented.
+            s_ident: str identifier for the MCMC run; no spaces allowed.
         """
         
         self.data = data
@@ -69,62 +77,67 @@ class MCMod:
     Class that contains basic model info.
     """
     
-    def __init__(self, parfile, inparams, psigmas_lib, plims_lib,
-                 lam, unit_conv, mod_bin_factor, model_path, log_path, s_ident):
+    def __init__(self, pkeys, parfile, pmeans_lib=None, psigmas_lib=None,
+                 plims_lib=None, priors=None, lam=1., unit_conv=1.,
+                 mod_bin_factor=None, model_path='.', log_path='.', s_ident='no_ident'):
         """
         Initialization code for MCMod.
         
         Inputs:
-            
+            pkeys:
+            parfile:
+            .
+            .
+            .
+            s_ident: str identifier for the MCMC run; no spaces allowed.
         
         """
-        pl_dict = dict()
         
-        self.pl = None
-        self.pkeys = None
-        self.pl_dict = None
+        self.pkeys = pkeys
         self.parfile = parfile
-        self.inparams = inparams
+        self.pmeans_lib = pmeans_lib
         self.psigmas_lib = psigmas_lib
         self.plims_lib = plims_lib
+        self.priors = priors
         self.lam = lam
         self.unit_conv = unit_conv
         self.mod_bin_factor = mod_bin_factor
         self.model_path = model_path
         self.log_path = log_path
         self.s_ident = s_ident
+        self.pl = None
+        self.pl_dict = None
 
 
 # Define your prior function here. The value that it returns will be added
 # to the ln probability of each model.
-def mc_lnprior(pl, pkeys):
+def mc_lnprior(pl, pkeys, priors):
     """
     Define the flat prior boundaries.
     Takes parameter list pl and parameter keys pkeys as inputs.
     
+    Inputs:
+        pl: array of parameter values (must be in same order as pkeys).
+        pkeys: array of sorted str pkeys (must be in same order as pl).
+        priors: dict with same keys as pkeys (but order doesn't matter).
+            If None, all models will pass.
+    
     Returns 0 if successful, or -infinity if failure.
     """
     
-    # edge can't be more than ~1/6 of r_in or MCFOST fails (either
-    # "disk radius is smaller than stellar radius" or "r_min < 0.0").
+    # NOTE: edge can't be more than ~1/6 of r_in or MCFOST fails (get either
+    # "disk radius is smaller than stellar radius" or "r_min < 0.0" error).
     
-    if  2.0 < pl[pkeys=='aexp'] <= 6.5 and \
-        1.0 < pl[pkeys=='amin'] <= 40. and \
-        -8.8 < pl[pkeys=='dust_mass'] < -6.0: # and \
-        # 0.1 < pl[pkeys=='debris_disk_vertical_profile_exponent'] <= 3. and \
-        # 0.001 < pl[pkeys=='dust_pop_0_mass_fraction'] < 1. and \
-        # 0.001 < pl[pkeys=='dust_pop_1_mass_fraction'] < 1. and \
-        # 0.001 < pl[pkeys=='dust_pop_2_mass_fraction'] < 1. and \
-        # -3.0 < pl[pkeys=='gamma_exp'] < 3.0 and \
-        # 76.0 <= pl[pkeys=='inc'] <= 86. and \
-        # 0.001 < pl[pkeys=='porosity'] < 0.95 and \
-        # 10. < pl[pkeys=='r_in'] <= 78. and \
-        # 0.3 < pl[pkeys=='scale_height'] <= 15. and \
-        # -3.0 < pl[pkeys=='surface_density_exp'] < 3.0:
-        
-        return 0.
-    else:
-        return -np.inf
+    if priors is not None:
+        for ii, key in enumerate(pkeys):
+            if priors[key][0] < pl[pkeys==key] < priors[key][1]:
+                continue
+            else:
+                print ("FAILED %s prior!" % key)
+                return -np.inf
+    
+    # If get to here, all parameters pass the prior and returns 0.
+    return 0.
 
 
 def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam=1.6):
@@ -157,7 +170,7 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam
  # over the [0] index here to go through multiples density zones.
             par.density_zones[0]['dust'][pop_num][dust_key] = pl_dict[pkey]
         # Must loop over all dust populations for some dust parameters.
-        elif pkey in ['amin', 'amax', 'aexp', 'ngrains', 'porosity']:
+        elif pkey in ['amax', 'aexp', 'ngrains', 'porosity']:
             for dp in range(len(par.density_zones[0]['dust'][:])):
                 par.density_zones[0]['dust'][dp][pkey] = pl_dict[pkey]
         elif pkey in ['debris_disk_vertical_profile_exponent', 'edge', 'flaring_exp', 'gamma_exp', 'surface_density_exp']:
@@ -166,6 +179,10 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam
         # Log parameters.
         elif pkey in ['dust_mass']:
             par.set_parameter('dust_mass', 10**pl_dict['dust_mass'])
+        # Log parameters looped over all dust populations.
+        elif pkey == 'amin':
+            for dp in range(len(par.density_zones[0]['dust'][:])):
+                par.density_zones[0]['dust'][dp][pkey] = 10**pl_dict[pkey]
         else:
             par.set_parameter(pkey, pl_dict[pkey])
     
@@ -210,42 +227,39 @@ def chi2_morph(path, data, uncerts, mod_bin_factor,
                phi_stokes, unit_conv):
     
     # Use try/except to prevent failed MCFOST models from killing the MCMC.
-    # try:
-    # Load latest model from file.
-    model = fits.getdata(path + '/RT.fits.gz') # [W/m^2...]
-    # Convert models to mJy/arcsec^2 to match data.
-    # model_I = unit_conv*model[0,0,0,:,:] # [mJy/arcsec^2]
-    model_Qr, model_Ur = get_radial_stokes(model[1,0,0,:,:], model[2,0,0,:,:], phi_stokes) # [W/m^2...]
-    model_Qr *= unit_conv # [mJy/arcsec^2]
+    try:
+        # Load latest model from file.
+        model = fits.getdata(path + '/RT.fits.gz') # [W/m^2...]
+        # Convert models to mJy/arcsec^2 to match data.
+        # model_I = unit_conv*model[0,0,0,:,:] # [mJy/arcsec^2]
+        model_Qr, model_Ur = get_radial_stokes(model[1,0,0,:,:], model[2,0,0,:,:], phi_stokes) # [W/m^2...]
+        model_Qr *= unit_conv # [mJy/arcsec^2]
+        
+ # FIX ME!!! Forward modeling is currently disabled.
+        # if algo=='loci':
+        #     model_I = do_fm_loci(dataset, model_I.copy(), c_list)
+        # elif algo=='pyklip':
+        #     # Forward model to match the KLIP'd data.
+        #     model_I = do_fm_pyklip(modfm, dataset, model_I.copy())
     
-# FIX ME!!! Forward modeling is currently disabled.
-    # if algo=='loci':
-    #     model_I = do_fm_loci(dataset, model_I.copy(), c_list)
-    # elif algo=='pyklip':
-    #     # Forward model to match the KLIP'd data.
-    #     model_I = do_fm_pyklip(modfm, dataset, model_I.copy())
-
-    if mod_bin_factor not in [None, 1]:
-        # model_I = zoom(model_I.copy(), 1./mod_bin_factor)*mod_bin_factor
-        model_Qr = zoom(model_Qr.copy(), 1./mod_bin_factor)*mod_bin_factor
-    
-    # Calculate simple chi^2 for I and Qr data.
-    # chi2_I = np.nansum(((data_I - model_I)/uncertainty_I)**2)
-    chi2_Qr = np.nansum(((data[0] - model_Qr)/uncerts[0])**2)
-    
-    print(chi2_Qr)
-    
-    # # Or, calculate reduced chi^2 for I and Qr data.
-    # chi2_I = chi_I/(np.where(np.isfinite(data_I))[0].size + len(theta))
-    # chi2_Qr = chi_Qr/(np.where(np.isfinite(data_Qr))[0].size + len(theta))
-    return np.array(chi2_Qr)
-    
-        # except:
-        #     return np.array(np.inf) #, np.inf
+        if mod_bin_factor not in [None, 1]:
+            # model_I = zoom(model_I.copy(), 1./mod_bin_factor)*mod_bin_factor
+            model_Qr = zoom(model_Qr.copy(), 1./mod_bin_factor)*mod_bin_factor
+        
+        # Calculate simple chi^2 for I and Qr data.
+        # chi2_I = np.nansum(((data_I - model_I)/uncertainty_I)**2)
+        chi2_Qr = np.nansum(((data[0] - model_Qr)/uncerts[0])**2)
+        
+        # # Or, calculate reduced chi^2 for I and Qr data.
+        # chi2_I = chi_I/(np.where(np.isfinite(data_I))[0].size + len(theta))
+        # chi2_Qr = chi_Qr/(np.where(np.isfinite(data_Qr))[0].size + len(theta))
+        return np.array(chi2_Qr)
+    except:
+        return np.array(np.inf) #, np.inf
 
 
 def mc_lnlike(pl, pkeys, data, uncerts, mod_bin_factor, phi_stokes,
-             parfile, model_path, unit_conv,
+             parfile, model_path, unit_conv, priors,
              lam, partemp, ndim, write_model, s_ident):
     """
     Computes and returns the natural log of the likelihood 
@@ -269,17 +283,13 @@ def mc_lnlike(pl, pkeys, data, uncerts, mod_bin_factor, phi_stokes,
         return lnpimage + lnpsed
     """
     
+    # Update pl_dict with new values for convenience.
     pl_dict = dict()
     pl_dict.update(zip(pkeys, pl))
     
-    # Create a new model object for this set of parameters.
- # FIX ME!!! Remove this formalism.
-    # mobj = ModObj(pl, pkeys, parfile, gen_path, model_path, lam, s_ident)
-    # pl_dict = mobj.pl_dict
-    
-    # For affine-invariant sampler, run the prior test.
+    # For affine-invariant ensemble sampler, run the prior test here.
     if not partemp:
-        if not np.isfinite(mc_lnprior(pl, pkeys)):
+        if not np.isfinite(mc_lnprior(pl, pkeys, priors)):
             return -np.inf
     
     # Assign a unique name to this model directory based on first 3 (or 1) parameters.
@@ -330,16 +340,14 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     uncerts = mcdata.uncerts
     stars = mcdata.stars
     
-    inparams = mcmod.inparams
     model_path = mcmod.model_path
     log_path = mcmod.log_path
     lam = mcmod.lam # [microns]
     unit_conv = mcmod.unit_conv
-
     
     # Sort the parameter names.
     # NOTE: this must be an array (can't be a list).
-    pkeys_all = np.array(sorted(inparams.keys()))
+    pkeys_all = np.array(sorted(mcmod.pkeys))
     
     # Create log file.
     mcmc_log = open(log_path + '%s_mcmc_log.txt' % s_ident, 'wb')
@@ -350,7 +358,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     phi_stokes = np.arctan2(yy - stars[0][0], xx - stars[0][1])
     
     # Bin data by factors specified in mcdata.bin_facts list.
-    # Do nothing if mcdata.bin_facts is None or 1.
+    # Do nothing if mcdata.bin_facts is None or its elements are 1.
     if mcdata.bin_facts is None:
         mcdata.bin_facts = len(data)*[1]
     
@@ -365,9 +373,10 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             # Bin data, uncertainties, and mask by interpolation.
             datum_binned = zoom(np.nan_to_num(data_orig[ii].data), 1./bin_fact)*bin_fact
             uncert_binned = zoom(np.nan_to_num(uncerts_orig[ii]), 1./bin_fact)*bin_fact
- # FIX ME!!! Interpolating the mask doesn't quite work perfectly. Need to re-make from first principles.
+ # FIX ME!!! Interpolating the mask may not work perfectly. Linear interpolation (order=1)
+ # is best so far.
             try:
-                mask_binned = zoom(np.nan_to_num(data_orig[ii].mask), 1./bin_fact)*bin_fact
+                mask_binned = zoom(np.nan_to_num(data_orig[ii].mask), 1./bin_fact, order=1)
             except:
                 mask_binned = False
             
@@ -378,7 +387,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             
             # mask_fit = np.ones(datum_binned.shape).astype(bool)
             # mask_fit[star_binned[0]-int(hw_y/bin_fact):star_binned[0]+int(hw_y/bin_fact)+1, star_binned[1]-int(hw_x/bin_fact):star_binned[1]+int(hw_x/bin_fact)+1] = False
- # FIX ME!!! Need to specify this inner region mask or happend automatically?
+ # FIX ME!!! Need to specify this inner region mask or happens automatically?
             # mask_fit[radii_binned < r_fit/int(bin_fact)] = True
             
             data[ii] = np.ma.masked_array(datum_binned, mask=mask_binned)
@@ -386,45 +395,44 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             stars[ii] = star_binned
     
     
-    #############################################################
-    # Initialize the walkers. The best technique seems to be
-    # to start in a small ball around the a priori preferred position.
-    # Dont worry, the walkers quickly branch out and explore the
-    # rest of the space.
-
-    # Set initial fit parameters from inparams.
-    p0 = np.array([inparams[pkey] for pkey in pkeys_all])
+    ####################################
+    # ------ INITIALIZE WALKERS ------ #
+    # This will be done using a uniform distribution drawn from
+    # plims_lib (first option if not None) or a Gaussian distribution
+    # drawn from pmeans_lib and psigmas_lib (if plims_lib == None).
     
-    ndim = len(p0)
+    ndim = len(pkeys_all)
     
-    # Just for stdout display purposes.
-    print("\nInitial fit parameters:\n", inparams)
+    print("\nNtemps = %d, Ndim = %d, Nwalkers = %d, Nstep = %d, Nburn = %d, Nthreads = %d" % (ntemps, ndim, nwalkers, niter, nburn, nthreads))
     
-    # Means for normal distribution of initial walker positions.
-    pmeans = dict(zip(pkeys_all, p0))
+    # Sort parameters for walker initialization.
+    if mcmod.plims_lib is not None:
+        plims_sorted = np.array([val for (key, val) in sorted(mcmod.plims_lib.items())])
+        init_type = 'uniform'
+    elif mcmod.pmeans_lib is not None:
+        pmeans_sorted = [val for (key, val) in sorted(mcmod.pmeans_lib.items())]
+        psigmas_sorted = [val for (key, val) in sorted(mcmod.psigmas_lib.items())]
+        init_type = 'gaussian'
     
-    # Get sigma values only for the input parameters in inparams.
-    psigmas = dict()
-    plims = dict()
-    for pkey in pkeys_all:
-        psigmas.update(zip([pkey], [mcmod.psigmas_lib.get(pkey)]))
-        plims.update(zip([pkey], [mcmod.plims_lib.get(pkey)]))
-    
-    # Sort parameter means and sigmas for walker initializationp.
-    pmeans_sorted = [val for (key, val) in sorted(pmeans.items())]
-    psigmas_sorted = [val for (key, val) in sorted(psigmas.items())]
-    plims_sorted = np.array([val for (key, val) in sorted(plims.items())])
-    
+    # Make the array of initial walker positions p0.
     if init_samples_fn is None:
         if partemp:
-            # # Gaussian ball initialization.
-            # p0 = np.random.normal(loc=pmeans_sorted, scale=psigmas_sorted, size=(ntemps, nwalkers, ndim))
-            # Uniform initialization between priors.
-            p0 = np.random.uniform(low=plims_sorted[:,0], high=plims_sorted[:,1], size=(ntemps, nwalkers, ndim))
-            print("\nNtemps = %d, Ndim = %d, Nwalkers = %d, Nstep = %d, Nburn = %d, Nthreads = %d" % (ntemps, ndim, nwalkers, niter, nburn, nthreads))
+            if init_type == 'uniform':
+                # Uniform initialization between priors.
+                p0 = np.random.uniform(low=plims_sorted[:,0], high=plims_sorted[:,1], size=(ntemps, nwalkers, ndim))
+            elif init_type == 'gaussian':
+                # Gaussian ball initialization.
+                p0 = np.random.normal(loc=pmeans_sorted, scale=psigmas_sorted, size=(ntemps, nwalkers, ndim))
         else:
-            p0 = np.random.normal(loc=pmeans_sorted, scale=psigmas_sorted, size=(nwalkers, ndim))
+            if init_type == 'uniform':
+                # Uniform initialization between priors.
+                p0 = np.random.uniform(low=plims_sorted[:,0], high=plims_sorted[:,1], size=(nwalkers, ndim))
+            elif init_type == 'gaussian':
+                # Gaussian ball initialization.
+                p0 = np.random.normal(loc=pmeans_sorted, scale=psigmas_sorted, size=(nwalkers, ndim))
+        print("Walker initialization = " + init_type)
     else:
+        init_type == 'sampled'
         init_step_ind = -1
         try:
             init_samples = hickle.load(log_path + init_samples_fn)
@@ -445,10 +453,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                         '\nLOG DATE: ' + dt.date.isoformat(dt.date.today()),
                         '\nJOB START: ' + start,
                         '\nNPROCESSORS: %d\n' % nthreads,
-                        # '\nDATASET: %s' % ds, '\nDATA IDENT: %s' % d_ident,
-                        '\nINITIAL PARAMS: ', str(inparams),
                         '\nMCFOST PARFILE: ', mcmod.parfile,
                         '\n\nMCMC PARAMS: Ndim: %d, Nwalkers: %d, Nburn: %d, Niter: %d, Nthin: %d, Nthreads: %d' % (ndim, nwalkers, nburn, niter, nthin, nthreads),
+                        '\nINITIALIZATION: ', init_type,
                         '\nParallel-tempered?: ' + str(partemp), ' , Ntemps: %d' % ntemps,
                         '\na = %.2f' % mc_a,
                         '\nWavelength = %s microns' % str(lam),
@@ -456,13 +463,14 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                         ]
     mcmc_log.writelines(log_preamble)
     
+    # Create emcee sampler instances: parallel-tempered or ensemble.
     if partemp:
         # Pass data_I, uncertainty_I, and parfile as arguments to emcee sampler.
         sampler = PTSampler(ntemps, nwalkers, ndim, mc_lnlike, mc_lnprior,
                       loglargs=[pkeys_all, data, uncerts, mcmod.mod_bin_factor, phi_stokes,
-                        mcmod.parfile, model_path, unit_conv,
+                        mcmod.parfile, model_path, unit_conv, mcmod.priors,
                         lam, partemp, ndim, write_model, s_ident],
-                      logpargs=[pkeys_all],
+                      logpargs=[pkeys_all, mcmod.priors],
                         threads=nthreads)
                       #pool=pool)
         
@@ -472,13 +480,15 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     else:
         sampler = EnsembleSampler(nwalkers, ndim, mc_lnlike,
                       args=[pkeys_all, data, uncerts, mcmod.mod_bin_factor, phi_stokes,
-                        mcmod.parfile, model_path, unit_conv,
+                        mcmod.parfile, model_path, unit_conv, mcmod.priors,
                         lam, partemp, ndim, write_model, s_ident],
                       # logpargs=[pkeys_all],
                         threads=nthreads)
+
+
+    ###############################
+    # ------ BURN-IN PHASE ------ #
     
-    pdb.set_trace()
- # ------ BURN-IN PHASE ------ #
     if nburn > 0:
         print("BURN-IN START...")
         for bb, (pburn, lnprob_burn, lnlike_burn) in enumerate(sampler.sample(p0, iterations=nburn)):
@@ -538,7 +548,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         lnlike_burn = None
     
     
- # ------ MAIN PHASE ------ #
+    ############################
+    # ------ MAIN PHASE ------ #
+    
     print("\nMAIN-PHASE MCMC START...")
     if partemp:
         for nn, (pp, lnprob, lnlike) in enumerate(sampler.sample(pburn, lnprob0=lnprob_burn, lnlike0=lnlike_burn, iterations=niter)):
@@ -555,10 +567,10 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                     for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
                         sampler_dict.__delitem__(item)
                     # with open(log_path + '%s_smcmc_full_sampler.hkl' % s_ident) as sampler_log:    
-                    hickle.dump(sampler_dict, log_path + '%s_mmcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
+                    hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
                     print("Sampler logged at iteration %d." % nn)
                 except:
-                    full_chain_log = gzip.open(log_path + '%s_mmcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
+                    full_chain_log = gzip.open(log_path + '%s_mcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
                     pickle.dump(sampler.chain, full_chain_log)
                     full_chain_log.close()
     else:
@@ -573,16 +585,21 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                     for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
                         sampler_dict.__delitem__(item)
                     # with open(log_path + '%s_smcmc_full_sampler.hkl' % s_ident) as sampler_log:    
-                    hickle.dump(sampler_dict, log_path + '%s_mmcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
+                    hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
                     print("Sampler logged at iteration %d." % nn)
                 except:
-                    full_chain_log = gzip.open(log_path + '%s_mmcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
+                    full_chain_log = gzip.open(log_path + '%s_mcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
                     pickle.dump(sampler.chain, full_chain_log)
                     full_chain_log.close()
     
     
     print('\nMCMC RUN COMPLETE!\n')
     
+    
+    ##################################
+    # ------ RESULTS HANDLING ------ #
+    # Log the sampler output and chains. Also get the max and median likelihood
+    # values and save models for them.
     
     # Take zero temperature walkers because only they sample posterior distribution.
     # Does not include burn-in samples.
@@ -608,12 +625,12 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     # Get array of parameter values for each walker at each step in chain.
     # Log the final full chain (all temperatures) for post-analysis- might be huge.
     try:
-        hickle.dump(sampler.chain, log_path + '%s_mmcmc_full_chain_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=7)
+        hickle.dump(sampler.chain, log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=7)
     except:
-        full_chain_log = gzip.open(log_path + '%s_mmcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
+        full_chain_log = gzip.open(log_path + '%s_mcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
         pickle.dump(sampler.chain, full_chain_log)
         full_chain_log.close()
-    print("MCMC full chain (all temps) h/pickled and logged as " + log_path + '%s_mmcmc_full_chain...' % s_ident)
+    print("MCMC full chain (all temps) h/pickled and logged as " + log_path + '%s_mcmc_full_chain...' % s_ident)
     
     blobs = None # not implemented yet
     
@@ -646,14 +663,14 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
             sampler_dict.__delitem__(item)
         # with open(log_path + '%s_smcmc_full_sampler.hkl' % s_ident) as sampler_log:    
-        hickle.dump(sampler_dict, log_path + '%s_mmcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
+        hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
         print("Sampler logged at iteration %d." % nn)
     except:
-        full_chain_log = gzip.open(log_path + '%s_mmcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
+        full_chain_log = gzip.open(log_path + '%s_mcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
         pickle.dump(sampler.chain, full_chain_log)
         full_chain_log.close()
     
-    print("MCMC output (all temps) h/pickled and logged as " + log_path + '%s_mmcmc_full_sampler...' % s_ident)
+    print("MCMC output (all temps) h/pickled and logged as " + log_path + '%s_mcmc_full_sampler...' % s_ident)
     # except:
     #     print("WARNING: Failed to log full sampler.")
     
@@ -679,9 +696,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                              lnprobability=lnprob_out, pkeys_all=pkeys_all)
             try:
                 # Hickle won't compress types other than numpy arrays. May prefer pickle here.
-                hickle.dump(mc_output, log_path + '%s_mmcmc_lite_sampler_T0_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=5)
+                hickle.dump(mc_output, log_path + '%s_mcmc_lite_sampler_T0_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=5)
             except:
-                mc_output_log = gzip.open(log_path + '%s_mmcmc_lite_sampler_T0.txt.gz' % s_ident, 'wb', 5)
+                mc_output_log = gzip.open(log_path + '%s_mcmc_lite_sampler_T0.txt.gz' % s_ident, 'wb', 5)
                 pickle.dump(mc_output, mc_output_log)
                 mc_output_log.close()
             
@@ -689,7 +706,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             print("Mean, Median Acceptance Fractions (zeroth temp): %.2f, %.2f" % (np.mean(sampler.acceptance_fraction[0]), np.median(sampler.acceptance_fraction[0])))
             mcmc_log.writelines('\nMean, Median Acceptance Fractions (zeroth temp): %.2f, %.2f' % (np.mean(sampler.acceptance_fraction[0]), np.median(sampler.acceptance_fraction[0])))
             
-            print("\nMCMC T0 output h/pickled and logged as " + os.path.expanduser(log_path + '%s_mmcmc_lite_sampler_T0...' % s_ident))
+            print("\nMCMC T0 output h/pickled and logged as " + os.path.expanduser(log_path + '%s_mcmc_lite_sampler_T0...' % s_ident))
             
         else:
             lnprob_out = sampler.lnprobability
@@ -698,9 +715,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                              lnprobability=lnprob_out, pkeys_all=pkeys_all)
             try:
                 # Hickle won't compress types other than numpy arrays. May prefer pickle here.
-                hickle.dump(mc_output, log_path + '%s_mmcmc_lite_sampler_T0_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=5)
+                hickle.dump(mc_output, log_path + '%s_mcmc_lite_sampler_T0_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=5)
             except:
-                mc_output_log = gzip.open(log_path + '%s_mmcmc_lite_sampler_T0.txt.gz' % s_ident, 'wb', 5)
+                mc_output_log = gzip.open(log_path + '%s_mcmc_lite_sampler_T0.txt.gz' % s_ident, 'wb', 5)
                 pickle.dump(mc_output, mc_output_log)
                 mc_output_log.close()
     
@@ -708,7 +725,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             print("Mean, Median Acceptance Fractions: %.2f, %.2f" % (np.mean(sampler.acceptance_fraction), np.median(sampler.acceptance_fraction)))
             mcmc_log.writelines('\nMean, Median Acceptance Fractions: %.2f, %.2f' % (np.mean(sampler.acceptance_fraction), np.median(sampler.acceptance_fraction)))
             
-            print("\nMCMC T0 output pickled/hickled and logged as " + os.path.expanduser(log_path + '%s_mmcmc_sampler.txt.gz' % s_ident))
+            print("\nMCMC T0 output pickled/hickled and logged as " + os.path.expanduser(log_path + '%s_mcmc_sampler.txt.gz' % s_ident))
             
     except:
         print("\nWARNING! MCMC output could not be logged.")
@@ -759,8 +776,13 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         pl_dict.update(zip(pkeys_all, pl))
         
         # Name for model and its directory.
-        fnstring = "%s_mmcmc_%s_aexp%.3f_amin%.2e_dm%.2e" % \
-                    (s_ident, mod_idents[mm], pl_dict['aexp'], pl_dict['amin'], pl_dict['dust_mass'])
+        try:
+            fnstring = "%s_mcmc_%s_%s%.3e_%s%.3e_%s%.3e" % \
+                       (s_ident, mod_idents[mm], pkeys_all[0], pl_dict[pkeys_all[0]], pkeys_all[1], pl_dict[pkeys_all[1]],
+                        pkeys_all[2], pl_dict[pkeys_all[2]])
+        except:
+            fnstring = "%s_mcmc_%s_%s%.5e" % \
+                       (s_ident, mod_idents[mm], pkeys_all[0], pl_dict[pkeys_all[0]])
         
         # Make the MCFOST model.
         make_mcfmod(pkeys_all, pl_dict, mcmod.parfile, model_path, s_ident, fnstring, lam)
@@ -820,19 +842,6 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         print("Max and Mean Likelihood models made, plotted, and saved.\n")
     except:
         print("Max and Mean Likelihood models made and saved but plotting failed.\n")
-
-    # # Make triangle plot. Will fail if ln probabilities are weird.
-    # try:
-    #     import corner
-    #     # labels_tri = ['I', 'amin', 'M dust', 'r_in', 'r_out']
-    #     labels_tri = pkeys_all
-    #     
-    #     samples = ch.reshape((-1, ndim)) # All zero-temp samples for every parameter.
-    #     fig_tri = corner.corner(samples, labels=labels_tri, quantiles=[0.16, 0.5, 0.84],
-    #                             label_kwargs={"fontsize":16},
-    #                             show_titles=False, verbose=True)
-    # except:
-    #     print("Corner plot failed.")
     
     
     time_end_secs = time.time()
@@ -845,19 +854,21 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     mcmc_log.writelines('\n\nSUCCESSFUL EXIT')
     mcmc_log.close()
     
-    # pdb.set_trace()
+    # Close MPI pool.
+    try:
+        pool.close()
+        print("\nMPI Pool closed")
+    except:
+        print("\nNo MPI pools to close.")
+    
+    print("mc_main function finished\n")
+    
+    pdb.set_trace()
     
     return
 
 
-# Close MPI pool.
-try:
-    pool.close()
-    print("\nMPI Pool closed")
-except:
-    print("\nNo MPI pools to close.")
 
-print("diskmc.py script finished\n")
 
 # # Pause interactively before finishing script.
 # pdb.set_trace()

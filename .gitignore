@@ -1,3 +1,5 @@
-# extensions to ignore
+# Files for git to ignore
+# Byte-compiled / optimized / DLL files
 *.pyc
 .DS_Store
+__pycache__/

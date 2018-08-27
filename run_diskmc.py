@@ -105,7 +105,7 @@ bin_factor = 2.
 
 # |----- LOAD DATA -----| #
 
-# CUSTOMIZE these paths to your data.
+# CUSTOMIZE this section to your data.
 
 # Load radial Stokes Q data from FITS file.
 data_Qr = fits.getdata(os.path.expanduser('~/Research/data/gpi/Reduced/hd35841_160318_H_pol/S20160318S0049_podc_radialstokesdc_sm2_perfwv_flex.01.01_smpol10_stpol2-11_mJy_arcsec-2.fits'))[1]
@@ -136,7 +136,7 @@ data_35841 = MCData([data_Qr_masked], [star], [uncertainty_Qr], [bin_factor],
 # |----- MCMC SETUP -----| #
 
 # Flag to delete (False) or save (True) every MCFOST model after sampled.
-write_model = True #False
+write_model = False
 
 # Factor by which to bin the model images.
 mod_bin_factor = bin_factor
@@ -152,30 +152,49 @@ except:
     print("Unable to set OMP_NUM_THREADS = %d ; defaulting to the current shell value." % omp_nthreads)
 
 
-# |----- MCMC INITIALIZATION PARAMETERS -----| #
+# |----- MCMC INITIALIZATION PARAMETERS & PRIORS -----| #
 
-# For Gaussian initialization, set the mean value for each parameter.
-inparams = dict(aexp=3.6, amin=27., #debris_disk_vertical_profile_exponent=0.92,
-                dust_mass=-6.8,
-                # dust_pop_0_mass_fraction=0.33, dust_pop_1_mass_fraction=0.33,
-                # dust_pop_2_mass_fraction=0.33, gamma_exp=1.0, inc=82.1,
-                # porosity=0.01, r_in=44.0, scale_height=4.0, surface_density_exp=0.7)
-                )
+# NOTE: Parameter key names MUST match those used in diskmc.make_mcfmod().
+# amin and dust_mass are log parameters, so state them here as np.log10(amin), ...
 
-# For Gaussian initialization, set the sigma value for each parameter.
-psigmas_lib = dict(aexp=1.0, amin=6.0, #debris_disk_vertical_profile_exponent=0.4,
-                   dust_mass=0.4,
-                # dust_pop_0_mass_fraction=0.2, dust_pop_1_mass_fraction=0.2,
-                # dust_pop_2_mass_fraction=0.2, gamma_exp=0.5, inc=2.,
-                # porosity=0.3, r_in=10.0, scale_height=1.0, surface_density_exp=0.5)
-                )
+# # For Gaussian initialization, set the mean value for each parameter.
+# pmeans_lib = dict(aexp=3.6, amin=0.6, #debris_disk_vertical_profile_exponent=0.92,
+#                 dust_mass=-6.8,
+#                 # dust_pop_0_mass_fraction=0.33, dust_pop_1_mass_fraction=0.33,
+#                 # dust_pop_2_mass_fraction=0.33, gamma_exp=1.0, inc=82.1,
+#                 # porosity=0.01, r_in=44.0, scale_height=4.0, surface_density_exp=0.7)
+#                 )
+# 
+# # For Gaussian initialization, set the sigma value for each parameter.
+# psigmas_lib = dict(aexp=1.0, amin=0.2, #debris_disk_vertical_profile_exponent=0.4,
+#                    dust_mass=0.4,
+#                 # dust_pop_0_mass_fraction=0.2, dust_pop_1_mass_fraction=0.2,
+#                 # dust_pop_2_mass_fraction=0.2, gamma_exp=0.5, inc=2.,
+#                 # porosity=0.3, r_in=10.0, scale_height=1.0, surface_density_exp=0.5)
+#                 )
+pmeans_lib = None
+psigmas_lib = None
 
 # For a uniform initialization, set Min/Max value limits for parameters.
 # These MUST fall within the prior boundaries, or walkers will become
 # zombies that never leave a lnprob = NaN condition.
-plims_lib = dict(aexp=(2.1, 6.5), amin=(1.1, 40.),
+plims_lib = dict(aexp=(2.1, 6.4), amin=(-0.9, 1.5),
                 # debris_disk_vertical_profile_exponent=(0.11, 3.),
-                dust_mass=(-8.7, -6.0), #dust_pop_0_mass_fraction=(0.002, 1.),
+                dust_mass=(-8.7, -5.9), #dust_pop_0_mass_fraction=(0.002, 1.),
+                # dust_pop_1_mass_fraction=(0.002, 1.), dust_pop_2_mass_fraction=(0.002, 1.),
+                #  gamma_exp=(-2.99, 3.0), inc=(76., 86.),
+                # porosity=(0.002, 0.95), r_in=(10.1, 53.),
+                # scale_height=(0.31, 15.), surface_density_exp=(-2.99, 3.0))
+                )
+
+# Set flat prior bounds for parameters (lnprob = -inf outside of bounds).
+# Tuple pairs are exclusive lower and upper bounds (i.e. 0.1 < amin < 10.).
+# NOTE: The priors should be inclusive of any initialization range above;
+# any walker initialized and rejected by the prior may become a zombie that
+# never leaves a lnprob = NaN condition.
+priors = dict(aexp=(2.0, 6.5), amin=(-1.0, 1.6),
+                # debris_disk_vertical_profile_exponent=(0.11, 3.),
+                dust_mass=(-8.8, -6.0), #dust_pop_0_mass_fraction=(0.002, 1.),
                 # dust_pop_1_mass_fraction=(0.002, 1.), dust_pop_2_mass_fraction=(0.002, 1.),
                 #  gamma_exp=(-2.99, 3.0), inc=(76., 86.),
                 # porosity=(0.002, 0.95), r_in=(10.1, 53.),
@@ -184,24 +203,23 @@ plims_lib = dict(aexp=(2.1, 6.5), amin=(1.1, 40.),
 
 
 # Create a handy MCMod instance to hold basic model info.
-mod_35841 = MCMod(parfile, inparams, psigmas_lib, plims_lib,
-              lam, conv_WtoJy, mod_bin_factor, model_path, log_path, s_ident)
+mod_35841 = MCMod(plims_lib.keys(), parfile, pmeans_lib, psigmas_lib, plims_lib, priors,
+                  lam, conv_WtoJy, mod_bin_factor, model_path, log_path, s_ident)
 
 
-
-# Call the MCMC function.
+# |----- RUN THE MCMC -----| #
 if __name__=='__main__':
     mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             mcdata=data_35841, mcmod=mod_35841, partemp=partemp, mc_a=mc_a, init_samples_fn=init_samples_fn,
             write_model=write_model, plot=False, save=False)
 
 
-# Close MPI pool.
-try:
-    pool.close()
-    print("\nMPI Pool closed")
-except:
-    print("\nNo MPI pools to close.")
+# # Close MPI pool.
+# try:
+#     pool.close()
+#     print("\nMPI Pool closed")
+# except:
+#     print("\nNo MPI pools to close.")
 
 # print("run_diskmc.py script finished\n")
 
