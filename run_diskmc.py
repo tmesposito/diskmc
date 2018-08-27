@@ -10,7 +10,8 @@ import numpy as np
 from astropy.io import fits
 from astropy import constants
 
-from diskmc import mc_main
+from diskmc_tools import make_radii, get_ann_stdmap
+from diskmc import mc_main, MCMod, MCData
 
 # !!!WARNING!!! Ignoring some annoying warnings about FITS files.
 from astropy.utils.exceptions import AstropyWarning
@@ -53,7 +54,7 @@ else:
 
 # |----- PATHS -----| #
 
-# Change these paths to match your personal directory setup.
+# CUSTOMIZE these paths to match your personal directory setup.
 
 model_path = os.path.expanduser('~/Desktop/test_dir/diskmc_%s/' % s_ident)
 log_path = os.path.expanduser('~/Desktop/test_dir/diskmc_logs/')
@@ -71,18 +72,9 @@ if not os.path.isdir(log_path):
     os.makedirs(log_path)
 
 
-# |----- LOAD DATA -----| #
-
-# Customize these paths to your data.
-
-# Load radial Stokes Q data from FITS file.
-data_Qr = fits.getdata(os.path.expanduser('~/Research/data/gpi/Reduced/hd35841_160318_H_pol/S20160318S0049_podc_radialstokesdc_sm2_perfwv_flex.01.01_smpol10_stpol2-11_mJy_arcsec-2.fits'))[1]
-# Load a mask that focuses on disk only (excludes outer noise areas).
-mask = fits.getdata(os.path.expanduser('~/Research/data/gpi/Reduced/hd35841_160228_H_spec/models/disk_mask-281x281_x140y140_tight.fits'))
-mask[mask==1] = np.nan
-
-
 # |----- DATASET PARAMETERS -----| #
+
+# CUSTOMIZE these parameters to your data.
 
 # skyPA = 74*np.pi/180. # [rad]
 pa_list = []
@@ -108,14 +100,46 @@ nu = constants.c.value/(1e-6*lam) # [Hz]
 conv_WtoJy = (1e3/pscale**2)*1.e26/nu # [(mJy arcsec^-2) / (W m^-2)]
 
 # Option to spatially bin data and models by some factor.
-bin_imgs = False
 bin_factor = 2.
+
+
+# |----- LOAD DATA -----| #
+
+# CUSTOMIZE these paths to your data.
+
+# Load radial Stokes Q data from FITS file.
+data_Qr = fits.getdata(os.path.expanduser('~/Research/data/gpi/Reduced/hd35841_160318_H_pol/S20160318S0049_podc_radialstokesdc_sm2_perfwv_flex.01.01_smpol10_stpol2-11_mJy_arcsec-2.fits'))[1]
+# Load a mask that focuses on disk only (excludes outer noise areas).
+noise_mask = fits.getdata(os.path.expanduser('~/Research/data/gpi/Reduced/hd35841_160228_H_spec/models/disk_mask-281x281_x140y140_tight.fits'))
+noise_mask[noise_mask==1] = np.nan
+
+# Array of radial distances from star in data_Qr.
+radii = make_radii(data_Qr, star)
+
+# Calculate noise map for data_Qr.
+uncertainty_Qr = get_ann_stdmap(data_Qr+noise_mask, star, radii, r_max=135)
+uncertainty_Qr[uncertainty_Qr==0] = np.nan
+
+# Make mask for data-model comparison, excluding large empty regions and edges.
+mask_fit = np.ones(data_Qr.shape).astype(bool)
+mask_fit[star[0]-hw_y:star[0]+hw_y+1, star[1]-hw_x:star[1]+hw_x+1] = False
+mask_fit[radii < r_fit] = True # mask out the pixels at edge of mask b/c noisy
+# Mask the data in a new masked array.
+data_Qr_masked = np.ma.masked_array(data_Qr, mask_fit)
+
+
+# Create a handy MCData object to hold all data and associated variables.
+data_35841 = MCData([data_Qr_masked], [star], [uncertainty_Qr], [bin_factor],
+                    [(hw_y, hw_x, r_fit)], s_ident)
 
 
 # |----- MCMC SETUP -----| #
 
 # Flag to delete (False) or save (True) every MCFOST model after sampled.
-write_model = False
+write_model = True #False
+
+# Factor by which to bin the model images.
+mod_bin_factor = bin_factor
 
 # Set number of parallel threads to which emcee will assign walkers.
 nthreads = 4
@@ -131,37 +155,45 @@ except:
 # |----- MCMC INITIALIZATION PARAMETERS -----| #
 
 # For Gaussian initialization, set the mean value for each parameter.
-inparams = dict(aexp=3.6, amin=27.) #, debris_disk_vertical_profile_exponent=0.92, dust_mass=-6.8,
+inparams = dict(aexp=3.6, amin=27., #debris_disk_vertical_profile_exponent=0.92,
+                dust_mass=-6.8,
                 # dust_pop_0_mass_fraction=0.33, dust_pop_1_mass_fraction=0.33,
                 # dust_pop_2_mass_fraction=0.33, gamma_exp=1.0, inc=82.1,
                 # porosity=0.01, r_in=44.0, scale_height=4.0, surface_density_exp=0.7)
+                )
 
 # For Gaussian initialization, set the sigma value for each parameter.
-psigmas_lib = dict(aexp=1.0, amin=6.0) #, debris_disk_vertical_profile_exponent=0.4, dust_mass=0.4,
+psigmas_lib = dict(aexp=1.0, amin=6.0, #debris_disk_vertical_profile_exponent=0.4,
+                   dust_mass=0.4,
                 # dust_pop_0_mass_fraction=0.2, dust_pop_1_mass_fraction=0.2,
                 # dust_pop_2_mass_fraction=0.2, gamma_exp=0.5, inc=2.,
                 # porosity=0.3, r_in=10.0, scale_height=1.0, surface_density_exp=0.5)
+                )
 
 # For a uniform initialization, set Min/Max value limits for parameters.
 # These MUST fall within the prior boundaries, or walkers will become
 # zombies that never leave a lnprob = NaN condition.
-plims_lib = dict(aexp=(2.1, 6.5), amin=(1.1, 40.))#,
+plims_lib = dict(aexp=(2.1, 6.5), amin=(1.1, 40.),
                 # debris_disk_vertical_profile_exponent=(0.11, 3.),
-                # dust_mass=(-8.7, -6.0), dust_pop_0_mass_fraction=(0.002, 1.),
+                dust_mass=(-8.7, -6.0), #dust_pop_0_mass_fraction=(0.002, 1.),
                 # dust_pop_1_mass_fraction=(0.002, 1.), dust_pop_2_mass_fraction=(0.002, 1.),
                 #  gamma_exp=(-2.99, 3.0), inc=(76., 86.),
                 # porosity=(0.002, 0.95), r_in=(10.1, 53.),
                 # scale_height=(0.31, 15.), surface_density_exp=(-2.99, 3.0))
+                )
 
 
-pdb.set_trace()
+# Create a handy MCMod instance to hold basic model info.
+mod_35841 = MCMod(parfile, inparams, psigmas_lib, plims_lib,
+              lam, conv_WtoJy, mod_bin_factor, model_path, log_path, s_ident)
+
 
 
 # Call the MCMC function.
 if __name__=='__main__':
-    mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
-            data_Qr, mask, partemp=partemp, mc_a=mc_a, init_samples_fn=init_samples_fn,
-            plot=False, save=False)
+    mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
+            mcdata=data_35841, mcmod=mod_35841, partemp=partemp, mc_a=mc_a, init_samples_fn=init_samples_fn,
+            write_model=write_model, plot=False, save=False)
 
 
 # Close MPI pool.
@@ -171,7 +203,7 @@ try:
 except:
     print("\nNo MPI pools to close.")
 
-print("run_diskmc.py script finished\n")
+# print("run_diskmc.py script finished\n")
 
 # # Pause interactively before finishing script.
 # pdb.set_trace()

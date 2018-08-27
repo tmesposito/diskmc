@@ -68,8 +68,8 @@ def get_radial_stokes(Q, U, phi):
                 np.arctan2(yy - star_y, xx - star_x)
     """
     
-    Qr = Q*numpy.cos(2*phi) + U*numpy.sin(2*phi)
-    Ur = -Q*numpy.sin(2*phi) + U*numpy.cos(2*phi)
+    Qr = Q*np.cos(2*phi) + U*np.sin(2*phi)
+    Ur = -Q*np.sin(2*phi) + U*np.cos(2*phi)
     
     return Qr, Ur
 

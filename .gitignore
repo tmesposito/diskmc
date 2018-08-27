@@ -1,2 +1,3 @@
 # extensions to ignore
 *.pyc
+.DS_Store

@@ -42,12 +42,12 @@ warnings.simplefilter('ignore', category=AstropyWarning)
 plt.ioff() 
 
 
-class ModObj:
+class MCData:
     """
-    Class that contains basic model info.
+    Class that contains data and associated info.
     """
     
-    def __init__(self, pl, pkeys, parfile, gen_path, model_path, lam, s_ident):
+    def __init__(self, data, stars, uncerts, bin_facts, mask_params, s_ident):
         """
         Initialization code for ModObj.
         
@@ -55,15 +55,43 @@ class ModObj:
             
         
         """
+        
+        self.data = data
+        self.stars = stars
+        self.uncerts = uncerts
+        self.bin_facts = bin_facts
+        self.mask_params = mask_params
+        self.s_ident = s_ident
+
+
+class MCMod:
+    """
+    Class that contains basic model info.
+    """
+    
+    def __init__(self, parfile, inparams, psigmas_lib, plims_lib,
+                 lam, unit_conv, mod_bin_factor, model_path, log_path, s_ident):
+        """
+        Initialization code for MCMod.
+        
+        Inputs:
+            
+        
+        """
         pl_dict = dict()
         
-        self.pl = pl
-        self.pkeys = pkeys
-        self.pl_dict = pl_dict.update(zip(pkeys, pl))
+        self.pl = None
+        self.pkeys = None
+        self.pl_dict = None
         self.parfile = parfile
-        self.gen_path = gen_path
-        self.model_path = model_path
+        self.inparams = inparams
+        self.psigmas_lib = psigmas_lib
+        self.plims_lib = plims_lib
         self.lam = lam
+        self.unit_conv = unit_conv
+        self.mod_bin_factor = mod_bin_factor
+        self.model_path = model_path
+        self.log_path = log_path
         self.s_ident = s_ident
 
 
@@ -82,44 +110,41 @@ def mc_lnprior(pl, pkeys):
     
     if  2.0 < pl[pkeys=='aexp'] <= 6.5 and \
         1.0 < pl[pkeys=='amin'] <= 40. and \
-        0.1 < pl[pkeys=='debris_disk_vertical_profile_exponent'] <= 3. and \
-        -8.8 < pl[pkeys=='dust_mass'] < -6.0 and \
-        0.001 < pl[pkeys=='dust_pop_0_mass_fraction'] < 1. and \
-        0.001 < pl[pkeys=='dust_pop_1_mass_fraction'] < 1. and \
-        0.001 < pl[pkeys=='dust_pop_2_mass_fraction'] < 1. and \
-        -3.0 < pl[pkeys=='gamma_exp'] < 3.0 and \
-        76.0 <= pl[pkeys=='inc'] <= 86. and \
-        0.001 < pl[pkeys=='porosity'] < 0.95 and \
-        10. < pl[pkeys=='r_in'] <= 78. and \
-        0.3 < pl[pkeys=='scale_height'] <= 15. and \
-        -3.0 < pl[pkeys=='surface_density_exp'] < 3.0:
+        -8.8 < pl[pkeys=='dust_mass'] < -6.0: # and \
+        # 0.1 < pl[pkeys=='debris_disk_vertical_profile_exponent'] <= 3. and \
+        # 0.001 < pl[pkeys=='dust_pop_0_mass_fraction'] < 1. and \
+        # 0.001 < pl[pkeys=='dust_pop_1_mass_fraction'] < 1. and \
+        # 0.001 < pl[pkeys=='dust_pop_2_mass_fraction'] < 1. and \
+        # -3.0 < pl[pkeys=='gamma_exp'] < 3.0 and \
+        # 76.0 <= pl[pkeys=='inc'] <= 86. and \
+        # 0.001 < pl[pkeys=='porosity'] < 0.95 and \
+        # 10. < pl[pkeys=='r_in'] <= 78. and \
+        # 0.3 < pl[pkeys=='scale_height'] <= 15. and \
+        # -3.0 < pl[pkeys=='surface_density_exp'] < 3.0:
         
         return 0.
     else:
         return -np.inf
 
 
-def make_mcfmod(mobj):
+def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam=1.6):
     """
     Make an MCFOST model by writing a .para file and calling MCFOST.
     
     Inputs:
-        mobj: a ModObj object that contains:
-            pl:
+        pl_dict: 
             ...
     
     Outputs:
         Technically nothing, but writes MCFOST models to disk.
     """
-    
-    pl_dict = mobj.pl_dict
-    
+        
     # Create a new MCFOST .para file object.
-    par = Paramfile(mobj.parfile)
+    par = Paramfile(parfile)
     
     # NOTE: hard-coded for MCFOST model FITS to have single inclination only.
     par.RT_n_incl = 1
-    for pkey in mobj.pkeys:
+    for pkey in pkeys:
         if pkey=='inc':
             par.RT_imax = pl_dict['inc']
             par.RT_imin = pl_dict['inc']
@@ -145,9 +170,10 @@ def make_mcfmod(mobj):
             par.set_parameter(pkey, pl_dict[pkey])
     
     if fnstring is None:
-        fnstring = "%s_mcmc_%s%.3e_%s%.3e" % (mobj.s_ident, mobj.pkeys[0], pl_dict[mobj.pkeys[0]], mobj.pkeys[1], pl_dict[mobj.pkeys[1]])
+        fnstring = "%s_mcmc_%s%.5e" % \
+                   (s_ident, pkeys[0], pl_dict[pkeys[0]])
     
-    modeldir = mobj.model_path + fnstring
+    modeldir = model_path + fnstring
     try:
         os.mkdir(modeldir)
     except OSError:
@@ -156,7 +182,7 @@ def make_mcfmod(mobj):
         os.mkdir(modeldir)
     
     # Write the .para file in the directory specific to given model.
-    par.writeto(modeldir+'/%s.para' % fnstring)
+    par.writeto(modeldir + '/%s.para' % fnstring)
     
     # Modify model directory permissions and cd to it.
     subprocess.call('chmod -R g+w '+modeldir, shell=True)
@@ -166,6 +192,7 @@ def make_mcfmod(mobj):
     try:
         # Run MCFOST to create the given model.
         # Re-direct terminal output to a .txt file.
+ # FIX ME!!! Specific to scattered-light only.
         subprocess.call('mcfost '+fnstring+'.para -img '+str(lam)+' -rt2 -only_scatt >> imagemcfostout.txt', shell=True)        
     except:
         pass
@@ -176,45 +203,50 @@ def make_mcfmod(mobj):
     return
 
 
-def chi2_morph(path, data_I, data_Qr, uncertainty_I, uncertainty_Qr,
-               dataset, modfm, c_list, phi_stokes, conv_WtoJy):
+# FIX ME!!! This whole chi2_morph function needs generalization to
+# multiple kinds and numbers of images.
+
+def chi2_morph(path, data, uncerts, mod_bin_factor,
+               phi_stokes, unit_conv):
     
     # Use try/except to prevent failed MCFOST models from killing the MCMC.
-    try:
-        # Load latest model from file.
-        model = fits.getdata(path + '/RT.fits.gz') # [W/m^2...]
-        # Convert models to mJy/arcsec^2 to match data.
-        model_I = conv_WtoJy*model[0,0,0,:,:] # [mJy/arcsec^2]
-        model_Qr, model_Ur = get_radial_stokes(model[1,0,0,:,:], model[2,0,0,:,:], phi_stokes) # [W/m^2...]
-        model_Qr *= conv_WtoJy # [mJy/arcsec^2]
-        
- # FIX ME!!! Forward modeling is currently disabled.
-        # if algo=='loci':
-        #     model_I = do_fm_loci(dataset, model_I.copy(), c_list)
-        # elif algo=='pyklip':
-        #     # Forward model to match the KLIP'd data.
-        #     model_I = do_fm_pyklip(modfm, dataset, model_I.copy())
-
-        if bin_imgs:
-            model_I = zoom(model_I.copy(), 1./bin_factor)*bin_factor
-            model_Qr = zoom(model_Qr.copy(), 1./bin_factor)*bin_factor
-        
-        # Calculate simple chi^2 for I and Qr data.
-        chi2_I = np.nansum(((data_I - model_I)/uncertainty_I)**2)
-        chi2_Qr = np.nansum(((data_Qr - model_Qr)/uncertainty_Qr)**2)
-        
-        # # Or, calculate reduced chi^2 for I and Qr data.
-        # chi2_I = chi_I/(np.where(np.isfinite(data_I))[0].size + len(theta))
-        # chi2_Qr = chi_Qr/(np.where(np.isfinite(data_Qr))[0].size + len(theta))
-        return chi2_I, chi2_Qr
+    # try:
+    # Load latest model from file.
+    model = fits.getdata(path + '/RT.fits.gz') # [W/m^2...]
+    # Convert models to mJy/arcsec^2 to match data.
+    # model_I = unit_conv*model[0,0,0,:,:] # [mJy/arcsec^2]
+    model_Qr, model_Ur = get_radial_stokes(model[1,0,0,:,:], model[2,0,0,:,:], phi_stokes) # [W/m^2...]
+    model_Qr *= unit_conv # [mJy/arcsec^2]
     
-    except:
-        return np.inf, np.inf
+# FIX ME!!! Forward modeling is currently disabled.
+    # if algo=='loci':
+    #     model_I = do_fm_loci(dataset, model_I.copy(), c_list)
+    # elif algo=='pyklip':
+    #     # Forward model to match the KLIP'd data.
+    #     model_I = do_fm_pyklip(modfm, dataset, model_I.copy())
+
+    if mod_bin_factor not in [None, 1]:
+        # model_I = zoom(model_I.copy(), 1./mod_bin_factor)*mod_bin_factor
+        model_Qr = zoom(model_Qr.copy(), 1./mod_bin_factor)*mod_bin_factor
+    
+    # Calculate simple chi^2 for I and Qr data.
+    # chi2_I = np.nansum(((data_I - model_I)/uncertainty_I)**2)
+    chi2_Qr = np.nansum(((data[0] - model_Qr)/uncerts[0])**2)
+    
+    print(chi2_Qr)
+    
+    # # Or, calculate reduced chi^2 for I and Qr data.
+    # chi2_I = chi_I/(np.where(np.isfinite(data_I))[0].size + len(theta))
+    # chi2_Qr = chi_Qr/(np.where(np.isfinite(data_Qr))[0].size + len(theta))
+    return np.array(chi2_Qr)
+    
+        # except:
+        #     return np.array(np.inf) #, np.inf
 
 
-def mc_lnlike(pl, pkeys, data_I, uncertainty_I, data_Qr, uncertainty_Qr, phi_stokes,
-             parfile, modfm, dataset, c_list, gen_path, model_path, conv_WtoJy,
-             lam, partemp, ndim):
+def mc_lnlike(pl, pkeys, data, uncerts, mod_bin_factor, phi_stokes,
+             parfile, model_path, unit_conv,
+             lam, partemp, ndim, write_model, s_ident):
     """
     Computes and returns the natural log of the likelihood 
     value for a given model.
@@ -237,30 +269,36 @@ def mc_lnlike(pl, pkeys, data_I, uncertainty_I, data_Qr, uncertainty_Qr, phi_sto
         return lnpimage + lnpsed
     """
     
-    # pl_dict = dict()
-    # pl_dict.update(zip(pkeys, pl))
+    pl_dict = dict()
+    pl_dict.update(zip(pkeys, pl))
     
     # Create a new model object for this set of parameters.
-    mobj = ModObj(pl, pkeys, parfile, gen_path, model_path, lam, s_ident)
-    pl_dict = mobj.pl_dict
+ # FIX ME!!! Remove this formalism.
+    # mobj = ModObj(pl, pkeys, parfile, gen_path, model_path, lam, s_ident)
+    # pl_dict = mobj.pl_dict
     
     # For affine-invariant sampler, run the prior test.
     if not partemp:
         if not np.isfinite(mc_lnprior(pl, pkeys)):
             return -np.inf
     
+    # Assign a unique name to this model directory based on first 3 (or 1) parameters.
     # NOTE: MCFOST seems to get confused when fnstring is longer than ~47 characters.
-    fnstring = "%s_mcmc_%s%.3e_%s%.3e_%s%.3e" % \
-               (s_ident, pkeys[0], pl_dict[pkeys[0]], pkeys[1], pl_dict[pkeys[1]],
-                pkeys[2], pl_dict[pkeys[2]])
+    try:
+        fnstring = "%s_mcmc_%s%.3e_%s%.3e_%s%.3e" % \
+                   (s_ident, pkeys[0], pl_dict[pkeys[0]], pkeys[1], pl_dict[pkeys[1]],
+                    pkeys[2], pl_dict[pkeys[2]])
+    except:
+        fnstring = "%s_mcmc_%s%.5e" % \
+                   (s_ident, pkeys[0], pl_dict[pkeys[0]])
     
     # Write the MCFOST .para file and create the model.
-    mcmcwrapper(mobj)
+    make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring, lam)
     
-    # Calculate Chi2 for total intensity and pol images.
-    chi2_I, chi2_Qr = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
-                        data_I, data_Qr, uncertainty_I, uncertainty_Qr,
-                        dataset, modfm, c_list, phi_stokes, conv_WtoJy)
+    # Calculate Chi2 for all images in data.
+    chi2s = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
+                        data, uncerts, mod_bin_factor,
+                        phi_stokes, unit_conv)
     # # Calculate reduced Chi2 for images and SED.
     # chi2_red_I = chi2_I/(np.where(np.isfinite(data_I))[0].size - ndim)
     # chi2_red_Qr = chi2_Qr/(np.where(np.isfinite(data_Qr))[0].size - ndim)
@@ -276,17 +314,28 @@ def mc_lnlike(pl, pkeys, data_I, uncertainty_I, data_Qr, uncertainty_Qr, phi_sto
     # lnpimage = -0.5*np.log(2*np.pi)*uncertainty_I.size - 0.5*imagechi - np.nansum(-np.log(uncertainty_I))
     # lnpimage = -0.5*np.log(2*np.pi)*uncertainty_I.size - 0.5*chi_red_I - np.nansum(-np.log(uncertainty_I)) + -0.5*np.log(2*np.pi)*uncertainty_Qr.size - 0.5*chi_red_Qr - np.nansum(-np.log(uncertainty_Qr))
     
-    return -0.5*(chi2_I + chi2_Qr)
+    return -0.5*(np.sum(chi2s))
 
 
-def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
-            data_Qr, mask, partemp=True, mc_a=2., init_samples_fn=None,
-            plot=False, save=False):
+def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
+            mcdata, mcmod, partemp=True, mc_a=2., init_samples_fn=None,
+            write_model=False, plot=False, save=False):
     
     start = time.ctime()
     time_start_secs = time.time()
     
     print("\nSTART TIME:", start)
+    
+    data = mcdata.data
+    uncerts = mcdata.uncerts
+    stars = mcdata.stars
+    
+    inparams = mcmod.inparams
+    model_path = mcmod.model_path
+    log_path = mcmod.log_path
+    lam = mcmod.lam # [microns]
+    unit_conv = mcmod.unit_conv
+
     
     # Sort the parameter names.
     # NOTE: this must be an array (can't be a list).
@@ -295,47 +344,48 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
     # Create log file.
     mcmc_log = open(log_path + '%s_mcmc_log.txt' % s_ident, 'wb')
     
-    # Array of radial distances from star in data_Qr.
-    radii = make_radii(data_Qr, star)
-    
-    # Calculate noise map for data_Qr.
-    uncertainty_Qr = get_ann_stdmap(data_Qr+mask, star, radii, r_max=135)
-    uncertainty_Qr[uncertainty_Qr==0] = np.nan
-    
-    # Make mask for data-model comparison, excluding large empty regions and edges.
-    mask_fit = np.ones(data_Qr.shape).astype(bool)
-    mask_fit[star[0]-hw_y:star[0]+hw_y+1, star[1]-hw_x:star[1]+hw_x+1] = False
-    mask_fit[radii < r_fit] = True # mask out the pixels at edge of mask b/c noisy
-    # Mask the data in a new masked array.
-    data_Qr_masked = np.ma.masked_array(data_Qr, mask_fit)
-    
+ # FIX ME!!! Need to handle this specific case better.
     # Make phi map specifically for conversion of Stokes to radial Stokes.
-    yy, xx = np.mgrid[:data_Qr.shape[0], :data_Qr.shape[1]]
-    phi_stokes = np.arctan2(yy - star[0], xx - star[1])
+    yy, xx = np.mgrid[:data[0].shape[0], :data[0].shape[1]]
+    phi_stokes = np.arctan2(yy - stars[0][0], xx - stars[0][1])
     
-    # Bin data if desired.
-    if bin_imgs:
-        # Store the original data as backup.
-        data_Qr_masked_orig = data_Qr_masked.copy()
-        uncertainty_Qr_orig = uncertainty_Qr.copy()
-        # Bin data by interpolation.
-        data_Qr_binned = zoom(np.nan_to_num(data_Qr_masked_orig.data), 1./bin_factor)*bin_factor
-        uncertainty_Qr = zoom(np.nan_to_num(uncertainty_Qr_orig), 1./bin_factor)*bin_factor
-        
-        star_orig = star.copy()
-        star_binned = star_orig/int(bin_factor)
-        
-        radii_orig = radii.copy()
-        radii = make_radii(data_Qr_binned, star_binned)
-        
-        mask_fit = np.ones(data_Qr_binned.shape).astype(bool)
-        mask_fit[star_binned[0]-int(hw_y/bin_factor):star_binned[0]+int(hw_y/bin_factor)+1, star_binned[1]-int(hw_x/bin_factor):star_binned[1]+int(hw_x/bin_factor)+1] = False
-        mask_fit[radii < r_fit/int(bin_factor)] = True
-        
-        data_Qr_masked = np.ma.masked_array(data_Qr_binned, mask_fit)
+    # Bin data by factors specified in mcdata.bin_facts list.
+    # Do nothing if mcdata.bin_facts is None or 1.
+    if mcdata.bin_facts is None:
+        mcdata.bin_facts = len(data)*[1]
     
- #!!!! Pick up from here...
-    pdb.set_trace()
+    for ii, bin_fact in enumerate(mcdata.bin_facts):
+        data_orig = []
+        uncerts_orig = []
+        stars_orig = []
+        if bin_fact not in [1, None]:
+            # Store the original data as backup.
+            data_orig.append(data[ii].copy())
+            uncerts_orig.append(uncerts[ii].copy())
+            # Bin data, uncertainties, and mask by interpolation.
+            datum_binned = zoom(np.nan_to_num(data_orig[ii].data), 1./bin_fact)*bin_fact
+            uncert_binned = zoom(np.nan_to_num(uncerts_orig[ii]), 1./bin_fact)*bin_fact
+ # FIX ME!!! Interpolating the mask doesn't quite work perfectly. Need to re-make from first principles.
+            try:
+                mask_binned = zoom(np.nan_to_num(data_orig[ii].mask), 1./bin_fact)*bin_fact
+            except:
+                mask_binned = False
+            
+            stars_orig.append(stars[ii].copy())
+            star_binned = stars_orig[ii]/int(bin_fact)
+            
+            # radii_binned = make_radii(datum_binned, star_binned)
+            
+            # mask_fit = np.ones(datum_binned.shape).astype(bool)
+            # mask_fit[star_binned[0]-int(hw_y/bin_fact):star_binned[0]+int(hw_y/bin_fact)+1, star_binned[1]-int(hw_x/bin_fact):star_binned[1]+int(hw_x/bin_fact)+1] = False
+ # FIX ME!!! Need to specify this inner region mask or happend automatically?
+            # mask_fit[radii_binned < r_fit/int(bin_fact)] = True
+            
+            data[ii] = np.ma.masked_array(datum_binned, mask=mask_binned)
+            uncerts[ii] = uncert_binned
+            stars[ii] = star_binned
+    
+    
     #############################################################
     # Initialize the walkers. The best technique seems to be
     # to start in a small ball around the a priori preferred position.
@@ -357,8 +407,8 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
     psigmas = dict()
     plims = dict()
     for pkey in pkeys_all:
-        psigmas.update(zip([pkey], [psigmas_lib.get(pkey)]))
-        plims.update(zip([pkey], [plims_lib.get(pkey)]))
+        psigmas.update(zip([pkey], [mcmod.psigmas_lib.get(pkey)]))
+        plims.update(zip([pkey], [mcmod.plims_lib.get(pkey)]))
     
     # Sort parameter means and sigmas for walker initializationp.
     pmeans_sorted = [val for (key, val) in sorted(pmeans.items())]
@@ -395,9 +445,9 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
                         '\nLOG DATE: ' + dt.date.isoformat(dt.date.today()),
                         '\nJOB START: ' + start,
                         '\nNPROCESSORS: %d\n' % nthreads,
-                        '\nDATASET: %s' % ds, '\nDATA IDENT: %s' % d_ident,
+                        # '\nDATASET: %s' % ds, '\nDATA IDENT: %s' % d_ident,
                         '\nINITIAL PARAMS: ', str(inparams),
-                        '\nMCFOST PARFILE: ', parfile,
+                        '\nMCFOST PARFILE: ', mcmod.parfile,
                         '\n\nMCMC PARAMS: Ndim: %d, Nwalkers: %d, Nburn: %d, Niter: %d, Nthin: %d, Nthreads: %d' % (ndim, nwalkers, nburn, niter, nthin, nthreads),
                         '\nParallel-tempered?: ' + str(partemp), ' , Ntemps: %d' % ntemps,
                         '\na = %.2f' % mc_a,
@@ -409,9 +459,9 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
     if partemp:
         # Pass data_I, uncertainty_I, and parfile as arguments to emcee sampler.
         sampler = PTSampler(ntemps, nwalkers, ndim, mc_lnlike, mc_lnprior,
-                      loglargs=[pkeys_all, data_I_masked, uncertainty_I, data_Qr_masked, uncertainty_Qr, phi_stokes,
-                        parfile, modfm, dataset, c_list, gen_path, model_path, conv_WtoJy,
-                        lam, partemp, ndim],
+                      loglargs=[pkeys_all, data, uncerts, mcmod.mod_bin_factor, phi_stokes,
+                        mcmod.parfile, model_path, unit_conv,
+                        lam, partemp, ndim, write_model, s_ident],
                       logpargs=[pkeys_all],
                         threads=nthreads)
                       #pool=pool)
@@ -421,14 +471,14 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
         
     else:
         sampler = EnsembleSampler(nwalkers, ndim, mc_lnlike,
-                      args=[pkeys_all, data_I_masked, uncertainty_I, data_Qr_masked, uncertainty_Qr, phi_stokes,
-                        parfile, modfm, dataset, c_list, gen_path, model_path, conv_WtoJy,
-                        lam, partemp, ndim],
+                      args=[pkeys_all, data, uncerts, mcmod.mod_bin_factor, phi_stokes,
+                        mcmod.parfile, model_path, unit_conv,
+                        lam, partemp, ndim, write_model, s_ident],
                       # logpargs=[pkeys_all],
                         threads=nthreads)
     
-    
-    # ------- BURN-IN PHASE -------
+    pdb.set_trace()
+ # ------ BURN-IN PHASE ------ #
     if nburn > 0:
         print("BURN-IN START...")
         for bb, (pburn, lnprob_burn, lnlike_burn) in enumerate(sampler.sample(p0, iterations=nburn)):
@@ -472,8 +522,6 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
         
         # Reset the sampler chains and lnprobability after burn-in.
         sampler.reset()
-        # saved_models = 0
-        # current_model = 0
     
         print("BURN-IN COMPLETE!")
     
@@ -489,7 +537,8 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
         lnprob_burn = None
         lnlike_burn = None
     
-    # ------- MAIN PHASE -------
+    
+ # ------ MAIN PHASE ------ #
     print("\nMAIN-PHASE MCMC START...")
     if partemp:
         for nn, (pp, lnprob, lnlike) in enumerate(sampler.sample(pburn, lnprob0=lnprob_burn, lnlike0=lnlike_burn, iterations=niter)):
@@ -533,6 +582,7 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
     
     
     print('\nMCMC RUN COMPLETE!\n')
+    
     
     # Take zero temperature walkers because only they sample posterior distribution.
     # Does not include burn-in samples.
@@ -713,18 +763,17 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
                     (s_ident, mod_idents[mm], pl_dict['aexp'], pl_dict['amin'], pl_dict['dust_mass'])
         
         # Make the MCFOST model.
-        mcmcwrapper(pl, pkeys_all, fnstring, parfile, gen_path, model_path, lam)
+        make_mcfmod(pkeys_all, pl_dict, mcmod.parfile, model_path, s_ident, fnstring, lam)
         
         # Calculate Chi2 for images.
-        chi2_I, chi2_Qr = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
-                            data_I_masked.filled(np.nan), data_Qr_masked.filled(np.nan),
-                            uncertainty_I, uncertainty_Qr,
-                            dataset, modfm, c_list, phi_stokes, conv_WtoJy)
+        chi2s = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
+                            data, uncerts, mcmod.mod_bin_factor, phi_stokes, unit_conv)
         # Calculate reduced Chi2 for images.
-        chi2_red_I = chi2_I/(np.where(np.isfinite(data_I_masked.filled(np.nan)))[0].size - ndim)
-        chi2_red_Qr = chi2_Qr/(np.where(np.isfinite(data_Qr_masked.filled(np.nan)))[0].size - ndim)
+        # chi2_red_I = chi2_I/(np.where(np.isfinite(data_I_masked.filled(np.nan)))[0].size - ndim)
+        chi2_red_Qr = chi2s/(np.where(np.isfinite(data[0].filled(np.nan)))[0].size - ndim)
         
-        chi2_red_total = chi2_red_I + chi2_red_Qr
+        # chi2_red_total = chi2_red_I + chi2_red_Qr
+        chi2_red_total = chi2_red_Qr
         
         if mm==0:
             lk_type = 'Max-Likelihood'
@@ -736,8 +785,10 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
             # mcmc_log.writelines('\n50%%-Likelihood total chi2_red: %.3e | SED Cushing G: %.3e , I chi2_red: %.3f , Qr chi2_red: %.3f' % (chi2_red_total, G_mm, chi2_red_I, chi2_red_Qr))
         # print('%s total chi2_red: %.3e | SED Cushing G: %.3e , I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, G_mm, chi2_red_I, chi2_red_Qr))
         # mcmc_log.writelines('\n%s total chi2_red: %.3e | SED Cushing G: %.3e , I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, G_mm, chi2_red_I, chi2_red_Qr))
-        print('%s total chi2_red: %.3e | I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, chi2_red_I, chi2_red_Qr))
-        mcmc_log.writelines('\n%s total chi2_red: %.3e | I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, chi2_red_I, chi2_red_Qr))
+        # print('%s total chi2_red: %.3e | I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, chi2_red_I, chi2_red_Qr))
+        # mcmc_log.writelines('\n%s total chi2_red: %.3e | I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, chi2_red_I, chi2_red_Qr))
+        print('%s total chi2_red: %.3e | Qr chi2_red: %.3f' % (lk_type, chi2_red_total, chi2_red_Qr))
+        mcmc_log.writelines('\n%s total chi2_red: %.3e | Qr chi2_red: %.3f' % (lk_type, chi2_red_total, chi2_red_Qr))
         
         # Make scattered-light and dust properties models for maxlk and meanlk.
         try:
@@ -794,6 +845,8 @@ def mc_main(s_ident, nwalkers, niter, nburn, nthreads, inparams,
     mcmc_log.writelines('\n\nSUCCESSFUL EXIT')
     mcmc_log.close()
     
+    # pdb.set_trace()
+    
     return
 
 
@@ -804,7 +857,7 @@ try:
 except:
     print("\nNo MPI pools to close.")
 
-print("run_mcmc.py script finished\n")
+print("diskmc.py script finished\n")
 
 # # Pause interactively before finishing script.
 # pdb.set_trace()
