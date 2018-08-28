@@ -108,9 +108,9 @@ bin_factor = 2.
 # CUSTOMIZE this section to your data.
 
 # Load radial Stokes Q data from FITS file.
-data_Qr = fits.getdata(os.path.expanduser('~/Research/data/gpi/Reduced/hd35841_160318_H_pol/S20160318S0049_podc_radialstokesdc_sm2_perfwv_flex.01.01_smpol10_stpol2-11_mJy_arcsec-2.fits'))[1]
+data_Qr = fits.getdata(os.path.expanduser('~/Desktop/test_dir/S20160318S0049_podc_radialstokesdc_sm2_perfwv_flex.01.01_smpol10_stpol2-11_mJy_arcsec-2.fits'))[1]
 # Load a mask that focuses on disk only (excludes outer noise areas).
-noise_mask = fits.getdata(os.path.expanduser('~/Research/data/gpi/Reduced/hd35841_160228_H_spec/models/disk_mask-281x281_x140y140_tight.fits'))
+noise_mask = fits.getdata(os.path.expanduser('~/Desktop/test_dir/disk_mask-281x281_x140y140_tight.fits'))
 noise_mask[noise_mask==1] = np.nan
 
 # Array of radial distances from star in data_Qr.
@@ -213,13 +213,6 @@ if __name__=='__main__':
             mcdata=data_35841, mcmod=mod_35841, partemp=partemp, mc_a=mc_a, init_samples_fn=init_samples_fn,
             write_model=write_model, plot=False, save=False)
 
-
-# # Close MPI pool.
-# try:
-#     pool.close()
-#     print("\nMPI Pool closed")
-# except:
-#     print("\nNo MPI pools to close.")
 
 # print("run_diskmc.py script finished\n")
 

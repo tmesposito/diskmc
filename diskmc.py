@@ -84,13 +84,27 @@ class MCMod:
         Initialization code for MCMod.
         
         Inputs:
-            pkeys:
-            parfile:
-            .
-            .
-            .
+            pkeys: array of str names for each model parameter being varied in the MCMC.
+                These MUST match those used in diskmc.make_mcfmod().
+            parfile: str path to the initial MCFOST parameter file used as a basis for
+                all MCMC models created.
+            pmeans_lib: dict of mean values for all model parameters if using a
+                Gaussian walker initialization. See run_diskmc.py for details.
+            psigmas_lib: dict of sigma values for all model parameters if using a
+                Gaussian walker initialization. See run_diskmc.py for details.
+            plims_lib: dict of uniform distribution limits for all model parameters
+                if using a uniform walker initialization. See run_diskmc.py for details.
+            priors: dict of flat prior lower and upper bounds (exclusive).
+                See run_diskmc.py for details.
+            lam: single wavelength at which to create the MCFOST models [microns]
+            unit_conv: multiplicative conversion factor to convert MCFOST models
+                into whatever unit is desired for the likelihood function.
+            mod_bin_factor: factor by which models images are spatially binned;
+                may need to match bin_facts set in MCData.
+            model_path: str path to outer directory that will hold all diskmc
+                model output.
+            log_path: str path to directory for diskmc logs to go into.
             s_ident: str identifier for the MCMC run; no spaces allowed.
-        
         """
         
         self.pkeys = pkeys
@@ -133,7 +147,6 @@ def mc_lnprior(pl, pkeys, priors):
             if priors[key][0] < pl[pkeys==key] < priors[key][1]:
                 continue
             else:
-                print ("FAILED %s prior!" % key)
                 return -np.inf
     
     # If get to here, all parameters pass the prior and returns 0.
