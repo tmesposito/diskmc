@@ -46,3 +46,8 @@ For now, please cite Esposito et al. (2018) if you find this code useful in your
         Bdsk-Url-1 = {https://doi.org/10.3847/1538-3881/aacbc9}
 	}
 
+## License ##
+
+Copyright 2018 Tom Esposito.
+
+DiskMC is free software made available under the GNU General Public License. For details see the LICENSE file.
