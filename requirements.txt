@@ -3,7 +3,7 @@
 # which is not publicly available (Christophe Pinte et al. 2006, 2009).
 
 ### Python packages ###
-Python == 2.7.*		# Not yet Python 3.x compatible
+python == 2.7.*		# Not yet Python 3.x compatible
 numpy >= 1.13
 matplotlib >= 2.0.0
 scipy >= 0.19.0
