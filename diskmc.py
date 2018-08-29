@@ -23,7 +23,10 @@ from astropy.io import fits
 from astropy import constants
 from scipy.ndimage import zoom
 
-import acor
+try:
+    import acor
+except ImportError:
+    raise ImportError('Package "acor" could not be imported; this is not crucial but no autocorrelation info will be calculated.')
 from emcee import PTSampler, EnsembleSampler
 #from emcee.utils import MPIPool
 #from mpi4py import MPI
