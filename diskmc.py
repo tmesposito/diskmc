@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 __author__ = 'Tom Esposito'
 __copyright__ = 'Copyright 2018, Tom Esposito'
 __credits__ = ['Tom Esposito']
 __license__ = 'GNU General Public License v3'
-__version__ = '0.0.1'
+__version__ = '0.1.0'
 __maintainer__ = 'Tom Esposito'
 __email__ = 'espos13@gmail.com'
 __status__ = 'Development'
@@ -15,7 +15,7 @@ from shutil import rmtree
 import pdb
 import time, datetime as dt
 import glob
-import pickle, hickle
+import hickle
 import gzip
 import numpy as np
 import matplotlib.pyplot as plt
@@ -347,7 +347,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     start = time.ctime()
     time_start_secs = time.time()
     
-    print("\nSTART TIME:", start)
+    print("\nSTART TIME: " + start)
     
     data = mcdata.data
     uncerts = mcdata.uncerts
@@ -363,7 +363,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     pkeys_all = np.array(sorted(mcmod.pkeys))
     
     # Create log file.
-    mcmc_log = open(log_path + '%s_mcmc_log.txt' % s_ident, 'wb')
+    mcmc_log = open(log_path + '%s_mcmc_log.txt' % s_ident, 'w')
     
  # FIX ME!!! Need to handle this specific case better.
     # Make phi map specifically for conversion of Stokes to radial Stokes.
@@ -447,10 +447,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     else:
         init_type == 'sampled'
         init_step_ind = -1
-        try:
-            init_samples = hickle.load(log_path + init_samples_fn)
-        except:
-            init_samples = pickle.load(gzip.open(log_path + init_samples_fn))
+        init_samples = hickle.load(log_path + init_samples_fn)
         if partemp:
             p0 = init_samples['_chain'][:,:,init_step_ind,:]
             lnprob_init = init_samples['_lnprob'][:,:,init_step_ind]
@@ -468,8 +465,8 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                         '\nNPROCESSORS: %d\n' % nthreads,
                         '\nMCFOST PARFILE: ', mcmod.parfile,
                         '\n\nMCMC PARAMS: Ndim: %d, Nwalkers: %d, Nburn: %d, Niter: %d, Nthin: %d, Nthreads: %d' % (ndim, nwalkers, nburn, niter, nthin, nthreads),
+                        '\nPARALLEL-TEMPERED?: ' + str(partemp), ' , Ntemps: %d' % ntemps,
                         '\nINITIALIZATION: ', init_type,
-                        '\nParallel-tempered?: ' + str(partemp), ' , Ntemps: %d' % ntemps,
                         '\na = %.2f' % mc_a,
                         '\nWavelength = %s microns' % str(lam),
                         '\n'
@@ -503,7 +500,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     # ------ BURN-IN PHASE ------ #
     
     if nburn > 0:
-        print("BURN-IN START...")
+        print("\nBURN-IN START...\n")
         for bb, (pburn, lnprob_burn, lnlike_burn) in enumerate(sampler.sample(p0, iterations=nburn)):
             # Print progress every 25%.
             if bb in [nburn/4, nburn/2, 3*nburn/4]:
@@ -564,7 +561,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     ############################
     # ------ MAIN PHASE ------ #
     
-    print("\nMAIN-PHASE MCMC START...")
+    print("\nMAIN-PHASE MCMC START...\n")
     if partemp:
         for nn, (pp, lnprob, lnlike) in enumerate(sampler.sample(pburn, lnprob0=lnprob_burn, lnlike0=lnlike_burn, iterations=niter)):
             # if np.any(np.isnan(lnprob)):
@@ -575,17 +572,14 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                 print("PROCESSING ITERATION %d; MCMC %.1f%% COMPLETE..." % (nn, 100*float(nn)/niter))
                 # Log the full sampler or chain (all temperatures) every so often.
                 try:
-                    # Delete some items from the sampler that don't h/pickle well.
+                    # Delete some items from the sampler that don't hickle well.
                     sampler_dict = sampler.__dict__.copy()
                     for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
                         sampler_dict.__delitem__(item)
-                    # with open(log_path + '%s_smcmc_full_sampler.hkl' % s_ident) as sampler_log:    
-                    hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
+                    hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w')
                     print("Sampler logged at iteration %d." % nn)
                 except:
-                    full_chain_log = gzip.open(log_path + '%s_mcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
-                    pickle.dump(sampler.chain, full_chain_log)
-                    full_chain_log.close()
+                    hickle.dump(sampler.chain, log_path + '%s_mcmc_full_chain.hkl' % s_ident, mode='w')
     else:
         for nn, (pp, lnprob, lnlike) in enumerate(sampler.sample(pburn, lnprob0=lnprob_burn, iterations=niter)):
             # Print progress every 25%.
@@ -593,17 +587,14 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                 print("PROCESSING ITERATION %d; MCMC %.1f%% COMPLETE..." % (nn, 100*float(nn)/niter))
                 # Log the full sampler or chain (all temperatures) every so often.
                 try:
-                    # Delete some items from the sampler that don't h/pickle well.
+                    # Delete some items from the sampler that don't hickle well.
                     sampler_dict = sampler.__dict__.copy()
                     for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
                         sampler_dict.__delitem__(item)
-                    # with open(log_path + '%s_smcmc_full_sampler.hkl' % s_ident) as sampler_log:    
-                    hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
+                    hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w')
                     print("Sampler logged at iteration %d." % nn)
                 except:
-                    full_chain_log = gzip.open(log_path + '%s_mcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
-                    pickle.dump(sampler.chain, full_chain_log)
-                    full_chain_log.close()
+                    hickle.dump(sampler.chain, log_path + '%s_mcmc_full_chain.hkl' % s_ident, mode='w')
     
     
     print('\nMCMC RUN COMPLETE!\n')
@@ -612,22 +603,24 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     ##################################
     # ------ RESULTS HANDLING ------ #
     # Log the sampler output and chains. Also get the max and median likelihood
-    # values and save models for them.
+    # parameter values and save models for them.
     
-    # Take zero temperature walkers because only they sample posterior distribution.
-    # Does not include burn-in samples.
-    # Has dimensions [nwalkers, nstep, pl.shape].
-    if partemp:
-        ch = sampler.chain[0,:,:,:] # zeroth temperature chain only
-        samples = ch[:, :, :].reshape((-1, ndim)) #ch[0,:,:,:]
-    else:
-        ch = sampler.chain
-        samples = ch[:, :, :].reshape((-1, ndim))
+    # If possible, dump the whole sampler to an HDF5 log file (could be large).
+    # If that fails for some reason, just dump the sampler chains.
+    try:
+        # Delete some items from the sampler that don't hickle well
+        # and are not typically useful later.
+        sampler_dict = sampler.__dict__.copy()
+        for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
+            sampler_dict.__delitem__(item)
+        hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
+        print("Full sampler (all temps) logged as " + log_path + '%s_mcmc_full_sampler.hkl' % s_ident)
+    except:
+        # As last resort, log the final full chain (all temperatures) for post-analysis.
+        print("FAILED to log full sampler!! Trying to save the chains...")
+        hickle.dump(sampler.chain, log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=7)
+        print("MCMC full chain (all temps) logged as " + log_path + '%s_mcmc_full_chain...' % s_ident)
     
-    # Renormalize mass_fraction values so sum to 1.0 (more intuitive).
-    wh_pops = [ind for ind, key in enumerate(pkeys_all) if 'dust_pop' in key]
-    samples_orig = samples.copy()
-    samples[:, wh_pops] /= np.reshape(np.sum(samples_orig[:, wh_pops], axis=1), (samples_orig.shape[0], 1))
     
     # Chain has shape (ntemps, nwalkers, nsteps/nthin, ndim).
     if partemp:
@@ -635,59 +628,34 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     else:
         assert sampler.chain.shape == (nwalkers, niter/nthin, ndim)
     
-    # Get array of parameter values for each walker at each step in chain.
-    # Log the final full chain (all temperatures) for post-analysis- might be huge.
-    try:
-        hickle.dump(sampler.chain, log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=7)
-    except:
-        full_chain_log = gzip.open(log_path + '%s_mcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
-        pickle.dump(sampler.chain, full_chain_log)
-        full_chain_log.close()
-    print("MCMC full chain (all temps) h/pickled and logged as " + log_path + '%s_mcmc_full_chain...' % s_ident)
-    
-    blobs = None # not implemented yet
-    
-    # Print main-phase autocorrelation time and acceptance fraction.
-    try:
-        # max_acl = np.nanmax(sampler.acor)
-        acor_all = sampler.acor
-    except:
-        # max_acl = -1.
-        acor_all = np.array([-1.])
-    
+    # If multiple temperatures, take zero temperature walkers because only they
+    # sample the posterior distribution.
+    # ch has dimensions [nwalkers, nstep, ndim] and excludes burn-in samples.
     if partemp:
-        mc_full_output = dict(acceptance_fraction=sampler.acceptance_fraction,
-                            acor=acor_all, blobs=blobs, chain=sampler.chain,
-                            lnprobability=sampler.lnprobability, betas=sampler.betas,
-                            nprop=sampler.nprop, nprop_accepted=sampler.nprop_accepted,
-                            nswap=sampler.nswap, tswap_acceptance_fraction=sampler.tswap_acceptance_fraction,
-                            pkeys_all=pkeys_all)
+        ch = sampler.chain[0,:,:,:] # zeroth temperature chain only
+        samples = ch[:, :, :].reshape((-1, ndim))
+        lnprob_out = sampler.lnprobability[0] # zero-temp chi-squareds
+        # Median acceptance fraction of zero temp walkers. 
+        print("\nMean, Median Acceptance Fractions (zeroth temp): %.2f, %.2f" % (np.mean(sampler.acceptance_fraction[0]), np.median(sampler.acceptance_fraction[0])))
+        mcmc_log.writelines('\nMean, Median Acceptance Fractions (zeroth temp): %.2f, %.2f' % (np.mean(sampler.acceptance_fraction[0]), np.median(sampler.acceptance_fraction[0])))
     else:
-        mc_full_output = dict(acceptance_fraction=sampler.acceptance_fraction,
-                            acor=acor_all, blobs=blobs, chain=sampler.chain,
-                            lnprobability=sampler.lnprobability, betas=[None],
-                            nprop=[None], nprop_accepted=[None],
-                            nswap=[None], tswap_acceptance_fraction=[None],
-                            pkeys_all=pkeys_all)
+        ch = sampler.chain
+        samples = ch[:, :, :].reshape((-1, ndim))
+        lnprob_out = sampler.lnprobability # all chi-squareds
+        # Median acceptance fraction of all walkers.
+        print("\nMean, Median Acceptance Fractions: %.2f, %.2f" % (np.mean(sampler.acceptance_fraction), np.median(sampler.acceptance_fraction)))
+        mcmc_log.writelines('\nMean, Median Acceptance Fractions: %.2f, %.2f' % (np.mean(sampler.acceptance_fraction), np.median(sampler.acceptance_fraction)))
+
     
-    try:
-        # Delete some items from the sampler that don't h/pickle well.
-        sampler_dict = sampler.__dict__.copy()
-        for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
-            sampler_dict.__delitem__(item)
-        # with open(log_path + '%s_smcmc_full_sampler.hkl' % s_ident) as sampler_log:    
-        hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
-        print("Sampler logged at iteration %d." % nn)
-    except:
-        full_chain_log = gzip.open(log_path + '%s_mcmc_full_chain.txt.gz' % s_ident, 'wb', 7)
-        pickle.dump(sampler.chain, full_chain_log)
-        full_chain_log.close()
+    # Renormalize mass_fraction values so sum to 1.0 (more intuitive).
+    wh_pops = [ind for ind, key in enumerate(pkeys_all) if 'dust_pop' in key]
+    samples_orig = samples.copy()
+    samples[:, wh_pops] /= np.reshape(np.sum(samples_orig[:, wh_pops], axis=1), (samples_orig.shape[0], 1))
     
-    print("MCMC output (all temps) h/pickled and logged as " + log_path + '%s_mcmc_full_sampler...' % s_ident)
-    # except:
-    #     print("WARNING: Failed to log full sampler.")
+    # Haven't implemented blobs handling yet.
+    blobs = None
     
-    # Print main-phase autocorrelation time and acceptance fraction.
+    # Print zero temp main-phase autocorrelation time and acceptance fraction.
     try:
         max_acl = np.nanmax(sampler.acor)
         if partemp:
@@ -697,51 +665,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     except:
         max_acl = -1.
         acor_T0 = -1.
-    print("\nLargest Main Autocorrelation Time = %.1f" % max_acl)
-    
-    # Hickle/Pickle and log select parts of the MCMC output.
-    try:
-        if partemp:
-            lnprob_out = sampler.lnprobability[0] # zero-temp chi-squareds
-            # mc_output = ['acceptance_fraction, acor, blobs, chain_T0, lnprobability, pkeys_all', sampler.acceptance_fraction[0], acor_T0, None, ch, lnprob_out, pkeys_all]
-            mc_output = dict(acceptance_fraction=sampler.acceptance_fraction[0],
-                             acor=np.array([acor_T0]), blobs=blobs, chain=ch,
-                             lnprobability=lnprob_out, pkeys_all=pkeys_all)
-            try:
-                # Hickle won't compress types other than numpy arrays. May prefer pickle here.
-                hickle.dump(mc_output, log_path + '%s_mcmc_lite_sampler_T0_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=5)
-            except:
-                mc_output_log = gzip.open(log_path + '%s_mcmc_lite_sampler_T0.txt.gz' % s_ident, 'wb', 5)
-                pickle.dump(mc_output, mc_output_log)
-                mc_output_log.close()
-            
-            # Median acceptance fraction of all walkers. 
-            print("Mean, Median Acceptance Fractions (zeroth temp): %.2f, %.2f" % (np.mean(sampler.acceptance_fraction[0]), np.median(sampler.acceptance_fraction[0])))
-            mcmc_log.writelines('\nMean, Median Acceptance Fractions (zeroth temp): %.2f, %.2f' % (np.mean(sampler.acceptance_fraction[0]), np.median(sampler.acceptance_fraction[0])))
-            
-            print("\nMCMC T0 output h/pickled and logged as " + os.path.expanduser(log_path + '%s_mcmc_lite_sampler_T0...' % s_ident))
-            
-        else:
-            lnprob_out = sampler.lnprobability
-            mc_output = dict(acceptance_fraction=sampler.acceptance_fraction,
-                             acor=np.array([acor_T0]), blobs=blobs, chain=ch,
-                             lnprobability=lnprob_out, pkeys_all=pkeys_all)
-            try:
-                # Hickle won't compress types other than numpy arrays. May prefer pickle here.
-                hickle.dump(mc_output, log_path + '%s_mcmc_lite_sampler_T0_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=5)
-            except:
-                mc_output_log = gzip.open(log_path + '%s_mcmc_lite_sampler_T0.txt.gz' % s_ident, 'wb', 5)
-                pickle.dump(mc_output, mc_output_log)
-                mc_output_log.close()
-    
-            # Median acceptance fraction of all walkers.
-            print("Mean, Median Acceptance Fractions: %.2f, %.2f" % (np.mean(sampler.acceptance_fraction), np.median(sampler.acceptance_fraction)))
-            mcmc_log.writelines('\nMean, Median Acceptance Fractions: %.2f, %.2f' % (np.mean(sampler.acceptance_fraction), np.median(sampler.acceptance_fraction)))
-            
-            print("\nMCMC T0 output pickled/hickled and logged as " + os.path.expanduser(log_path + '%s_mcmc_sampler.txt.gz' % s_ident))
-            
-    except:
-        print("\nWARNING! MCMC output could not be logged.")
+    print("Largest Main Autocorrelation Time = %.1f" % max_acl)
     
     
     # Max likelihood params values.
@@ -758,21 +682,13 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     print("\nMax-Likelihood Param Values:")
     mcmc_log.writelines('\n\nMAX-LIKELIHOOD PARAM VALUES:')
     for kk, key in enumerate(pkeys_all):
-        #print("mu0 = %.2f +/- %.2f/%2f \nmu1 = %.2f +/- %.2f/%2f \nsig0 = %.2f +/- %.2f/%2f \nsig1 = %.2f +/- %.2f/%2f" % (mu0_mcmc[0], mu0_mcmc[1], mu0_mcmc[2], mu1_mcmc[0], mu1_mcmc[1], mu1_mcmc[2], sig0_mcmc[0], sig0_mcmc[1], sig0_mcmc[2], sig1_mcmc[0], sig1_mcmc[1], sig1_mcmc[2])
-        print(key, '= %.3e' % params_ml_mcmc[key])
+        print(key + ' = %.3e' % params_ml_mcmc[key])
         mcmc_log.writelines('\n%s = %.3e' % (key, params_ml_mcmc[key]))
     
     print("\n50%-Likelihood Param Values (50th percentile +/- 1 sigma (i.e., 34%):")
     mcmc_log.writelines('\n\n50%-LIKELIHOOD PARAM VALUES (50th percentile +/- 1 sigma (i.e., 34%):')
     for kk, key in enumerate(pkeys_all):
-        #print("mu0 = %.2f +/- %.2f/%2f \nmu1 = %.2f +/- %.2f/%2f \nsig0 = %.2f +/- %.2f/%2f \nsig1 = %.2f +/- %.2f/%2f" % (mu0_mcmc[0], mu0_mcmc[1], mu0_mcmc[2], mu1_mcmc[0], mu1_mcmc[1], mu1_mcmc[2], sig0_mcmc[0], sig0_mcmc[1], sig0_mcmc[2], sig1_mcmc[0], sig1_mcmc[1], sig1_mcmc[2]))
-        # if key=='dust_mass':
-        #     print(key, '= %.3e +/- %.3e/%.3e' % (params_mean_mcmc[kk][0], params_mean_mcmc[kk][1], params_mean_mcmc[kk][2]))
-        #     mcmc_log.writelines('\n%s = %.3e +/- %.3e/%.3e' % (key, params_mean_mcmc[kk][0], params_mean_mcmc[kk][1], params_mean_mcmc[kk][2]))
-        # else:
-        #     print(key, '= %.3f +/- %.3f/%.3f' % (params_mean_mcmc[kk][0], params_mean_mcmc[kk][1], params_mean_mcmc[kk][2]))
-        #     mcmc_log.writelines('\n%s = %.3f +/- %.3f/%.3f' % (key, params_mean_mcmc[kk][0], params_mean_mcmc[kk][1], params_mean_mcmc[kk][2]))
-        print(key, '= %.3f +/- %.3f/%.3f' % (params_mean_mcmc[kk][0], params_mean_mcmc[kk][1], params_mean_mcmc[kk][2]))
+        print(key + ' = %.3f +/- %.3f/%.3f' % (params_mean_mcmc[kk][0], params_mean_mcmc[kk][1], params_mean_mcmc[kk][2]))
         mcmc_log.writelines('\n%s = %.3f +/- %.3f/%.3f' % (key, params_mean_mcmc[kk][0], params_mean_mcmc[kk][1], params_mean_mcmc[kk][2]))
     
     
@@ -781,8 +697,6 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     print("\nConstructing 'best-fit' models...")
     mod_idents = ['maxlk', 'meanlk']
     params_50th_mcmc = np.array(params_mean_mcmc)[:,0]
-    # # Normalize mass_fraction values so sum to 1.0.
-    # params_50th_mcmc[2:5] /= np.sum(params_50th_mcmc.copy()[2:5])
     
     for mm, pl in enumerate([params_ml_mcmc_sorted, params_50th_mcmc]):
         pl_dict = dict()
@@ -844,9 +758,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             # subprocess.call('mcfost '+fnstring+'.para -img 0.565 -PA %s -rt2 -only_scatt >> imagemcfostout.txt' % skyPA, shell=True)
             subprocess.call('mcfost '+fnstring+'.para -img 0.565 -rt2 -only_scatt >> imagemcfostout.txt', shell=True)
             time.sleep(2)
-            print("Made scattered-light and dust properties models.")
+            print("Saved scattered-light and dust properties models.")
         except:
-            print("Failed to make scattered-light and dust properties models.")
+            print("Failed to save scattered-light and dust properties models.")
     
     # Plot and save maxlk and meanlk models.
     try:
@@ -859,7 +773,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     
     time_end_secs = time.time()
     time_elapsed_secs = time_end_secs - time_start_secs # [seconds]
-    print("END TIME:", time.ctime())
+    print("END TIME: " + time.ctime())
     print("ELAPSED TIME: %.2f minutes = %.2f hours" % (time_elapsed_secs/60., time_elapsed_secs/3600.))
     
     mcmc_log.writelines(['\n\nSTART TIME - END TIME: ', start, ' - ', time.ctime()])
@@ -874,14 +788,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     except:
         print("\nNo MPI pools to close.")
     
-    print("mc_main function finished\n")
+    print("\nmc_main function finished\n")
     
-    pdb.set_trace()
+    # # Pause interactively before finishing script.
+    # pdb.set_trace()
     
     return
-
-
-
-
-# # Pause interactively before finishing script.
-# pdb.set_trace()
