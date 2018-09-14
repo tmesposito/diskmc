@@ -177,6 +177,8 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam
         if pkey=='inc':
             par.RT_imax = pl_dict['inc']
             par.RT_imin = pl_dict['inc']
+        elif pkey=='disk_pa':
+            par.disk_pa = pl_dict['disk_pa']
         # Handle multiple dust populations.
         elif 'dust_pop' in pkey:
             pkey_split = pkey[9:].split('_')
