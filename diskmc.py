@@ -760,8 +760,6 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             # Make the scattered-light models at proper wavelengths and PA.
             subprocess.call('mcfost '+fnstring+'.para -img '+str(lam)+' -rt2 >> imagemcfostout.txt', shell=True)
             # time.sleep(2)
-            # subprocess.call('mcfost '+fnstring+'.para -img 0.565 -PA %s -rt2 -only_scatt >> imagemcfostout.txt' % skyPA, shell=True)
-            subprocess.call('mcfost '+fnstring+'.para -img 0.565 -rt2 -only_scatt >> imagemcfostout.txt', shell=True)
             time.sleep(2)
             print("Saved scattered-light and dust properties models.")
         except:
