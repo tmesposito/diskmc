@@ -50,7 +50,9 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         try:
             sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
         except:
-            sampler = pickle.load(gzip.open(path + s_ident + '_mcmc_full_sampler.txt.gz', 'r'))
+            # sampler = pickle.load(gzip.open(path + s_ident + '_mcmc_full_sampler.txt.gz', 'r'))
+            print("FAILED to load sampler from log. Check s_ident and path and try again.")
+            return
         ch = sampler['_chain']
         betas = sampler['_betas'] # temperature ladder
         ntemps = ch.shape[0]
@@ -102,7 +104,9 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
             sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
             # sampler = hickle.load(path + s_ident + '_mcmc_lite_sampler_T0_gzip.hkl')
         except:
-            sampler = pickle.load(gzip.open(path + s_ident + '_mcmc_full_sampler.txt.gz', 'r'))
+            # sampler = pickle.load(gzip.open(path + s_ident + '_mcmc_full_sampler.txt.gz', 'r'))
+            print("FAILED to load sampler from log. Check s_ident and path and try again.")
+            return
         ch = sampler['_chain']
         beta = 1.
         lnprob = sampler['_lnprob']/beta

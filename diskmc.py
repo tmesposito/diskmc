@@ -580,7 +580,10 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                     # Delete some items from the sampler that don't hickle well.
                     sampler_dict = sampler.__dict__.copy()
                     for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
-                        sampler_dict.__delitem__(item)
+                        try:
+                            sampler_dict.__delitem__(item)
+                        except:
+                            continue
                     hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w')
                     print("Sampler logged at iteration %d." % nn)
                 except:
@@ -595,7 +598,10 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                     # Delete some items from the sampler that don't hickle well.
                     sampler_dict = sampler.__dict__.copy()
                     for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
-                        sampler_dict.__delitem__(item)
+                        try:
+                            sampler_dict.__delitem__(item)
+                        except:
+                            continue
                     hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w')
                     print("Sampler logged at iteration %d." % nn)
                 except:
@@ -617,7 +623,10 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         # and are not typically useful later.
         sampler_dict = sampler.__dict__.copy()
         for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
-            sampler_dict.__delitem__(item)
+            try:
+                sampler_dict.__delitem__(item)
+            except:
+                continue
         hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
         print("Full sampler (all temps) logged as " + log_path + '%s_mcmc_full_sampler.hkl' % s_ident)
     except:
