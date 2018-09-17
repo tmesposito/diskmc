@@ -8,7 +8,9 @@ import matplotlib, matplotlib.pyplot as plt
 
 def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=1, 
                 nstop=None, newversion=True, add_fn=None, add_ind=0,
-                make_maxlk=False, make_medlk=False, lam=1.6, plot=True, save=False):
+                make_maxlk=False, make_medlk=False, lam=1.6,
+                range_dict=None, range_dict_tri=None, prior_dict_tri=None, xticks_dict_tri=None,
+                plot=True, save=False):
     """
     !! WARNING: PARTIALLY FUNCTIONAL !!
     
@@ -179,11 +181,6 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         params_maxlk[key] = ch[ind_lk_max[0], ind_lk_max[1], kk][0]
     pl_maxlk = np.array([params_maxlk[pk] for pk in pkeys])
     
- # TEMP!!!
-    # nonlog = np.exp(samples)
-    # perc_list = map(lambda v: (v[1], v[2]-v[1], v[1]-v[0]),
-    #                          zip(*np.percentile(nonlog, [16, 50, 84], axis=0)))
-    
     perc_list = map(lambda v: (v[1], v[2]-v[1], v[1]-v[0]),
                              zip(*np.percentile(samples, [16, 50, 84], axis=0)))
     
@@ -196,10 +193,6 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         print key, '= %.3f +/- %.3f/%.3f  (%.3f, %.3f) ; 99.7%% (%.3f, %.3f)' % (perc_list[kk][0], perc_list[kk][1], perc_list[kk][2], perc_list[kk][0]+perc_list[kk][1], perc_list[kk][0]-perc_list[kk][2], perc_3sigma_list[kk][0]+perc_3sigma_list[kk][1], perc_3sigma_list[kk][0]-perc_3sigma_list[kk][2])
         params_medlk[key] = perc_list[kk][0]
     pl_medlk = np.array([params_medlk[pk] for pk in pkeys])
-    # if 'spl_br' in pkeys:
-    #     for kk, spl_br_mcmc in enumerate(params_mean_mcmc[-6:]):
-    #         print 'spl_br %d = %.3e +/- %.3e/%.3e' % (kk, spl_br_mcmc[0], spl_br_mcmc[1], spl_br_mcmc[2])
-    #         mcmc_log.writelines('\nspl_br %d = %.3e +/- %.3e/%.3e' % (kk, spl_br_mcmc[0], spl_br_mcmc[1], spl_br_mcmc[2]))
     
     # Make MCFOST models from maxlk and meanlk params if desired.
     if make_maxlk:
@@ -237,44 +230,23 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
             r_critical=r'$R_c$', r_in=r'$R_{in}$', r_out=r'$R_{out}$',
             scale_height=r'$H_0$', surface_density_exp=r'$\alpha_{in}$')
     
-    # Trimmed ranges for walker display (basically the prior bounds).
-    range_dict = dict(aexp=(2.1, 6.5), amin=np.array([-1.0, 1.602]), #0.1, 40.]),
-        debris_disk_vertical_profile_exponent=(0.11, 3.),
-        disk_pa=(-77., -73.), dust_mass=(-8.8, -5.5),
-        dust_pop_0_mass_fraction=(0., 1.), dust_pop_1_mass_fraction=(0., 1.),
-        dust_pop_2_mass_fraction=(0., 1.), gamma_exp=(-6., 7.),
-        inc=(78., 88.), porosity=(0., 1.0),
-        r_critical=(40., 110.), r_in=(10., 65.),
-        scale_height=(0.3, 10.), surface_density_exp=(-6., 0.))
+    # Trimmed ranges for walker display plots.
+    if range_dict is None:
+        range_dict = dict()
+        for pk in pkeys:
+            range_dict[pk] = (None, None)
     
-    # Trimmed x-axis ranges for triangle plot display.
-    range_dict_tri = dict(aexp=(2.35, 3.25), amin=np.log10(np.array([0.08, 13.])), #(-2., 42.),
-        debris_disk_vertical_profile_exponent=(0.3, 1.1),
-        disk_pa=(165.0, 166.6), dust_mass=(-6.8, -5.8),
-        dust_pop_0_mass_fraction=(-0.1, 1.1), dust_pop_1_mass_fraction=(-0.1, 1.1),
-        dust_pop_2_mass_fraction=(-0.1, 1.1), gamma_exp=(-5.7, 7.7),
-        inc=(83.5, 86.5), porosity=(-0.05, 0.25),
-        r_critical=(38., 85.), r_in=(46., 68.),
-        scale_height=(1., 6.5), surface_density_exp=(-5., -1.))
+    # Trimmed x-axis ranges for triangle plot.
+    if range_dict_tri is None:
+        range_dict_tri = dict()
+        for pk in pkeys:
+            range_dict_tri[pk] = (None, None)
     
-    # # Submitted v1.
-    # range_dict_tri = dict(aexp=(2., 6.5), amin=np.array([-2., 42.]), # amin=np.log10(np.array([1., 40.])),
-    #     debris_disk_vertical_profile_exponent=(0.5, 1.1),
-    #     disk_pa=(-77., -73.), dust_mass=(-8., -6.2),
-    #     dust_pop_0_mass_fraction=(-0.1, 1.1), dust_pop_1_mass_fraction=(-0.1, 1.1),
-    #     dust_pop_2_mass_fraction=(-0.1, 1.1), gamma_exp=(-2.5, 3.5),
-    #     inc=(83., 85.), porosity=(-0.02, 0.1),
-    #     r_critical=(40., 110.), r_in=(42., 64.),
-    #     scale_height=(3.5, 5.6), surface_density_exp=(-2.5, 3.5))
-    
-    prior_dict_tri = dict(aexp=(2., 6.), amin=np.log10(np.array([0.1, 40.])), #(0.1, 40.),
-            debris_disk_vertical_profile_exponent=(0.1, 3.),
-            disk_pa=(163., 167.), dust_mass=(-8.8, -5.0),
-            dust_pop_0_mass_fraction=(0., 1.), dust_pop_1_mass_fraction=(0., 1.),
-            dust_pop_2_mass_fraction=(0., 1.), gamma_exp=(-6., 7.),
-            inc=(80., 88.), porosity=(0., 0.99),
-            r_critical=(40., 110.), r_in=(10., 65.),
-            scale_height=(0.3, 10.), surface_density_exp=(-6, 0.))
+    # Boundaries for the prior to display in the triangle plot.
+    if prior_dict_tri is None:
+        prior_dict_tri = dict()
+        for pk in pkeys:
+            prior_dict_tri[pk] = (None, None)
     
     # Compute Gelman-Rubin statistic of chain convergence. https://blog.stata.com/2016/05/26/gelman-rubin-convergence-diagnostic-using-multiple-chains/
     # mm denotes the mth simulated chain, with m = 1, ..., M.
@@ -545,48 +517,17 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         # samples_tri[:,np.where(pkeys_tri=='amin')[0]] = 10**(samples[:,np.where(pkeys=='amin')[0]])
         
         labels_tri = [labels_dict[key] for key in tri_incl]
-        
-        # Full ranges.
-        # range_dict = dict(aexp=(2., 6.5), amin=(np.log10(1.), np.log10(40.)),
-        #     debris_disk_vertical_profile_exponent=(0.1, 3.),
-        #     dust_mass=(-8.8, -6.),
-        #     dust_pop_0_mass_fraction=(0., 1.), dust_pop_1_mass_fraction=(0., 1.),
-        #     dust_pop_2_mass_fraction=(0., 1.), gamma_exp=(-3., 3.),
-        #     inc=(76., 86.), porosity=(0., 1.),
-        #     r_in=(10., 53.),
-        #     scale_height=(0.3, 15.), surface_density_exp=(-3., 3.))
-        
         range_tri = [range_dict_tri[key] for key in tri_incl]
-        
-        # # Priors used for morph_mcmc_24.
-        # # Submitted v1.
-        # prior_dict_tri = dict(aexp=(2.5, 6.5), amin=np.array([1.1, 40.]), # amin=np.log10(np.array([1., 40.])),
-        #     debris_disk_vertical_profile_exponent=(0.1, 3.),
-        #     dust_mass=(-8.8, -6.0),
-        #     dust_pop_0_mass_fraction=(0., 1.), dust_pop_1_mass_fraction=(0., 1.),
-        #     dust_pop_2_mass_fraction=(0., 1.), gamma_exp=(-3., 3.),
-        #     inc=(76., 86.), porosity=(0., 0.95),
-        #     r_critical=(40., 110.), r_in=(10., 78.),
-        #     scale_height=(0.3, 15.), surface_density_exp=(-3, 3.))
-        
         # x-axis tick locations and labels.
-        xticks_dict_tri = dict(aexp=(2.5, 2.8, 3.1), amin=(-1., 0., 1.), # amin=np.log10(np.array([1., 40.])),
-            debris_disk_vertical_profile_exponent=(0.4, 0.7, 1.0),
-            disk_pa=(165.2, 165.8, 166.4), dust_mass=(-6.6, -6.3, -6.0),
-            dust_pop_0_mass_fraction=(0., 0.5, 1.), dust_pop_1_mass_fraction=(0., 0.5, 1.),
-            dust_pop_2_mass_fraction=(0., 0.5, 1.), gamma_exp=(-5., 1., 7.),
-            inc=(84., 85., 86.), porosity=(0., 0.1, 0.2), #0.04, 0.08),
-            r_critical=(40., 60., 80.), r_in=(50., 57., 64.),
-            scale_height=(2., 4., 6.), surface_density_exp=(-4.5, -3., -1.5))
-        # # Submitted v1.
-        # xticks_dict_tri = dict(aexp=(2.5, 4., 5.5), amin=np.array([0., 20., 40.]), # amin=np.log10(np.array([1., 40.])),
-        #     debris_disk_vertical_profile_exponent=(0.6, 0.8, 1.0),
-        #     dust_mass=(-7.7, -7.1, -6.5),
-        #     dust_pop_0_mass_fraction=(0., 0.5, 1.), dust_pop_1_mass_fraction=(0., 0.5, 1.),
-        #     dust_pop_2_mass_fraction=(0., 0.5, 1.), gamma_exp=(-2., 0.5, 3.),
-        #     inc=(83.3, 84., 84.7), porosity=(0., 0.5, 1.0), #0.04, 0.08),
-        #     r_critical=(50., 75., 100.), r_in=(44., 53., 62.),
-        #     scale_height=(3.7, 4.5, 5.3), surface_density_exp=(-2., 0.5, 3.))
+        if xticks_dict_tri is None:
+            xticks_dict_tri = dict(aexp=(2.5, 2.8, 3.1), amin=(-1., 0., 1.), # amin=np.log10(np.array([1., 40.])),
+                debris_disk_vertical_profile_exponent=(0.4, 0.7, 1.0),
+                disk_pa=(165.2, 165.8, 166.4), dust_mass=(-6.6, -6.3, -6.0),
+                dust_pop_0_mass_fraction=(0., 0.5, 1.), dust_pop_1_mass_fraction=(0., 0.5, 1.),
+                dust_pop_2_mass_fraction=(0., 0.5, 1.), gamma_exp=(-5., 1., 7.),
+                inc=(84., 85., 86.), porosity=(0., 0.1, 0.2), #0.04, 0.08),
+                r_critical=(40., 60., 80.), r_in=(50., 57., 64.),
+                scale_height=(2., 4., 6.), surface_density_exp=(-4.5, -3., -1.5))
         
         fontsize_tri = 12
         # Make triangle figure and save if desired.
