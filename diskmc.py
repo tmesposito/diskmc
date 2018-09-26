@@ -368,7 +368,8 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     pkeys_all = np.array(sorted(mcmod.pkeys))
     
     # Create log file.
-    mcmc_log = open(log_path + '%s_mcmc_log.txt' % s_ident, 'w')
+    mcmc_log_fn = log_path + '%s_mcmc_log.txt' % s_ident
+    mcmc_log = open(mcmc_log_fn, 'w')
     
  # FIX ME!!! Need to handle this specific case better.
     # Make phi map specifically for conversion of Stokes to radial Stokes.
@@ -463,11 +464,19 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             lnlike_init = init_samples['_lnlikelihood'][:,init_step_ind]
         print("\nLoaded init_samples from %s.\nWalkers will start from those final positions." % init_samples_fn)
     
+    # Try to get the MCFOST version number being used.
+    try:
+        output = subprocess.check_output("mcfost -v")
+        mcf_version = output.split('\n')[0].split(' ')[-1]
+    except:
+        mcf_version = 'unknown'
+    print("Running MCFOST version %s" % mcf_version)
     
     log_preamble = ['|---MCMC LOG---|\n\n', '%s' % s_ident,
                         '\nLOG DATE: ' + dt.date.isoformat(dt.date.today()),
                         '\nJOB START: ' + start,
                         '\nNPROCESSORS: %d\n' % nthreads,
+                        '\nMCFOST version: %s' % mcf_version,
                         '\nMCFOST PARFILE: ', mcmod.parfile,
                         '\n\nMCMC PARAMS: Ndim: %d, Nwalkers: %d, Nburn: %d, Niter: %d, Nthin: %d, Nthreads: %d' % (ndim, nwalkers, nburn, niter, nthin, nthreads),
                         '\nPARALLEL-TEMPERED?: ' + str(partemp), ' , Ntemps: %d' % ntemps,
@@ -477,6 +486,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                         '\n'
                         ]
     mcmc_log.writelines(log_preamble)
+    mcmc_log.close()
     
     # Create emcee sampler instances: parallel-tempered or ensemble.
     if partemp:
@@ -642,6 +652,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     else:
         assert sampler.chain.shape == (nwalkers, niter/nthin, ndim)
     
+    # Re-open the text log for additional info.
+    mcmc_log = open(mcmc_log_fn, 'a')
+    
     # If multiple temperatures, take zero temperature walkers because only they
     # sample the posterior distribution.
     # ch has dimensions [nwalkers, nstep, ndim] and excludes burn-in samples.
@@ -698,7 +711,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     for kk, key in enumerate(pkeys_all):
         print(key + ' = %.3e' % params_ml_mcmc[key])
         mcmc_log.writelines('\n%s = %.3e' % (key, params_ml_mcmc[key]))
-    
+
     print("\n50%-Likelihood Param Values (50th percentile +/- 1 sigma (i.e., 34%):")
     mcmc_log.writelines('\n\n50%-LIKELIHOOD PARAM VALUES (50th percentile +/- 1 sigma (i.e., 34%):')
     for kk, key in enumerate(pkeys_all):
