@@ -466,7 +466,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     
     # Try to get the MCFOST version number being used.
     try:
-        output = subprocess.check_output("mcfost -v")
+        output = subprocess.check_output("mcfost -v", shell=True)
         mcf_version = output.split('\n')[0].split(' ')[-1]
     except:
         mcf_version = 'unknown'
