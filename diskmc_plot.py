@@ -52,7 +52,6 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         try:
             sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
         except:
-            # sampler = pickle.load(gzip.open(path + s_ident + '_mcmc_full_sampler.txt.gz', 'r'))
             print("FAILED to load sampler from log. Check s_ident and path and try again.")
             return
         ch = sampler['_chain']
@@ -76,37 +75,10 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
             lnprob = sampler['_lnprob']/beta
             acf = [acor.function(np.mean(ch[::nthin,nburn:nstop,ii], axis=0)) for ii in range(ndim)]
             print "Analyzing temperature=0 chain only, because ntemp_view=None."
-        # if ntemp_view==0:
-        #     """lite_sampler_T0 = dict(acceptance_fraction=sampler.acceptance_fraction[0],
-        #                      acor=np.array([acor_T0]), blobs=blobs, chain=ch,
-        #                      lnprobability=lnprob_out, pkeys_all=pkeys_all)"""
-        #     try:
-        #         sampler = hickle.load(path + s_ident + '_mcmc_lite_sampler_T0_gzip.hkl')
-        #         ch = sampler['chain']
-        #         beta = 1.
-        #         lnprob = sampler['lnprobability']/beta # log probability; dim=[nwalkers, nsteps]
-        #         nwalkers = ch.shape[0]
-        #         nstep = ch.shape[1]
-        #         ndim = ch.shape[2]
-        #         acf = [acor.function(np.mean(ch[::nthin,nburn:nstop,ii], axis=0)) for ii in range(ndim)]
-        #         print "Analyzing temperature=0 chain only, because ntemp_view=0."
-        #     except:
-        #         print "WARNING: No 0-temperature log found, will try to use all-temperature log."
-        #         sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
-        #         ch = sampler['_chain'][0]
-        #         beta = 1.
-        #         # ntemps = ch.shape[0]
-        #         nwalkers = ch.shape[0]
-        #         nstep = ch.shape[1]
-        #         ndim = ch.shape[2]
-        #         lnprob = sampler['_lnprob'][0]/beta
-        #         acf = [acor.function(np.mean(ch[::nthin,nburn:nstop,ii], axis=0)) for ii in range(ndim)]
     else:
         try:
             sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
-            # sampler = hickle.load(path + s_ident + '_mcmc_lite_sampler_T0_gzip.hkl')
         except:
-            # sampler = pickle.load(gzip.open(path + s_ident + '_mcmc_full_sampler.txt.gz', 'r'))
             print("FAILED to load sampler from log. Check s_ident and path and try again.")
             return
         ch = sampler['_chain']
@@ -236,12 +208,6 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         for pk in pkeys:
             range_dict[pk] = (None, None)
     
-    # Trimmed x-axis ranges for triangle plot.
-    if range_dict_tri is None:
-        range_dict_tri = dict()
-        for pk in pkeys:
-            range_dict_tri[pk] = (None, None)
-    
     # Boundaries for the prior to display in the triangle plot.
     if prior_dict_tri is None:
         prior_dict_tri = dict()
@@ -287,7 +253,6 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
                 priors = (-1., 1.6)
             else:
                 priors = prior_dict_tri[pkey]
-                # priors = range_dict_tri[pkey]
             max_ind = chunk_size - 1
             hist_ind = 0
             while max_ind <= ch.shape[1]:
@@ -323,10 +288,6 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         for aa, ff in enumerate(range(0, min(6, ndim), 1)):
             sbpl = "32%d" % (aa+1)
             ax = fig.add_subplot(int(sbpl))
-            # if pkeys[ff]=='dust_mass':
-            #     for ww in range(nwalkers):
-            #         ax.plot(range(0,nstep), 10**ch[ww,:,ff], 'k', alpha=0.3)
-            # else:
             for ww in range(nwalkers):
                 ax.plot(range(0,nstep), ch[ww,:,ff], 'k-', alpha=10./nwalkers)
             # if nburn > 0:
@@ -509,25 +470,19 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
                 tri_sort.append(np.where(pkeys==key)[0][0])
                 tri_incl.append(key)
         
+        # New array of triangle plot pkeys.
+        tri_incl = np.array(tri_incl)
         # Thin out samples for triangle plot by only plotting every nthin sample.
         samples_tri = samples[::nthin, tri_sort]
         # Convert disk_pa to on-sky PA (E of N).
         if newversion:
-            samples_tri[:, np.where(pkeys_tri=='disk_pa')[0]] = 90 - samples_tri[:, np.where(pkeys_tri=='disk_pa')[0]]
-        # samples_tri[:,np.where(pkeys_tri=='amin')[0]] = 10**(samples[:,np.where(pkeys=='amin')[0]])
+            samples_tri[:, np.where(tri_incl=='disk_pa')[0]] = 360. - samples_tri[:, np.where(tri_incl=='disk_pa')[0]]
         
         labels_tri = [labels_dict[key] for key in tri_incl]
-        range_tri = [range_dict_tri[key] for key in tri_incl]
-        # x-axis tick locations and labels.
-        if xticks_dict_tri is None:
-            xticks_dict_tri = dict(aexp=(2.5, 2.8, 3.1), amin=(-1., 0., 1.), # amin=np.log10(np.array([1., 40.])),
-                debris_disk_vertical_profile_exponent=(0.4, 0.7, 1.0),
-                disk_pa=(165.2, 165.8, 166.4), dust_mass=(-6.6, -6.3, -6.0),
-                dust_pop_0_mass_fraction=(0., 0.5, 1.), dust_pop_1_mass_fraction=(0., 0.5, 1.),
-                dust_pop_2_mass_fraction=(0., 0.5, 1.), gamma_exp=(-5., 1., 7.),
-                inc=(84., 85., 86.), porosity=(0., 0.1, 0.2), #0.04, 0.08),
-                r_critical=(40., 60., 80.), r_in=(50., 57., 64.),
-                scale_height=(2., 4., 6.), surface_density_exp=(-4.5, -3., -1.5))
+        if range_dict_tri is not None:
+            range_tri = [range_dict_tri[key] for key in tri_incl]
+        else:
+            range_tri = None
         
         fontsize_tri = 12
         # Make triangle figure and save if desired.
@@ -541,51 +496,44 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         
         # Adjust figure/axes attributes after creation.
         # fig_tri.set_size_inches(18, fig_tri.get_size_inches()[1], forward=True)
-        fig_tri.set_size_inches(14, 11, forward=True)
+        fig_tri.set_size_inches(10., 8., forward=True)
         # tri_axes[0] is top left corner; index increase from left to right across rows.
         tri_axes = fig_tri.get_axes()
         
         # Set x-axis ticks and ticklabels.
         # rr for row, cc for column of triangle plot.
-        for cc in range(0, samples_tri.shape[1]):
-            ax_list = [tri_axes[cc + jj*samples_tri.shape[1]] for jj in range(samples_tri.shape[1])]
-            for rr, ax in enumerate(ax_list):
-                # Ignore the empty upper-right corner of triangle plot.
-                if rr >= cc:
-                    ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator(xticks_dict_tri[pkeys_tri[cc]]))
-                if ax==ax_list[-1]:
-                    ax.set_xticklabels(xticks_dict_tri[pkeys_tri[cc]])
+        if xticks_dict_tri is not None:
+            for cc in range(0, samples_tri.shape[1]):
+                ax_list = [tri_axes[cc + jj*samples_tri.shape[1]] for jj in range(samples_tri.shape[1])]
+                for rr, ax in enumerate(ax_list):
+                    # Ignore the empty upper-right corner of triangle plot.
+                    if rr >= cc:
+                        ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator(xticks_dict_tri[tri_incl[cc]]))
+                        if rr != cc:
+                            ax.yaxis.set_major_locator(matplotlib.ticker.FixedLocator(xticks_dict_tri[tri_incl[:][rr]]))
+                            # pdb.set_trace()
+                        elif rr==cc:
+                            ax.yaxis.set_visible(False)
+                    if ax==ax_list[-1]:
+                        ax.set_xticklabels(xticks_dict_tri[tri_incl[cc]])
+                    if ((cc==0) and (rr > 0)):
+                        ax.set_yticklabels(xticks_dict_tri[tri_incl[rr]])
         
-        for cc in range(0, samples_tri.shape[1]):
-            ax_list = [tri_axes[cc + jj*samples_tri.shape[1]] for jj in range(samples_tri.shape[1])]
-            for rr, ax in enumerate(ax_list):
-                # Ignore the empty upper-right corner of triangle plot.
-                if rr >= cc:
-                    ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator(xticks_dict_tri[pkeys_tri[cc]]))
-                    if rr != cc:
-                        ax.yaxis.set_major_locator(matplotlib.ticker.FixedLocator(xticks_dict_tri[pkeys_tri[:][rr]]))
-                        # pdb.set_trace()
-                    elif rr==cc:
-                        ax.yaxis.set_visible(False)
-                if ax==ax_list[-1]:
-                    ax.set_xticklabels(xticks_dict_tri[pkeys_tri[cc]])
-                if ((cc==0) and (rr > 0)):
-                    ax.set_yticklabels(xticks_dict_tri[pkeys_tri[rr]])
-                
         for ax in tri_axes:
             ax.tick_params(axis='both', which='both', labelsize=fontsize_tri-1) #, direction='in') # change tick label size
             ax.tick_params(axis='x', which='both', pad=1) # reduce space between ticks and tick labels
             ax.tick_params(axis='y', which='both', pad=1) # reduce space between ticks and tick labels
             plt.setp(ax.yaxis.get_majorticklabels(), rotation=0) # make y tick labels horizontal
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=70) # make x tick labels more vertical
-            ax.xaxis.set_label_coords(0.5, -1.) # move x labels downward
-            ax.yaxis.set_label_coords(-0.7, 0.5) # move y labels leftward
-        plt.subplots_adjust(bottom=0.08, top=0.99, left=0.06, right=0.99) # adjust margins of figure
+            ax.xaxis.set_label_coords(0.5, -0.45) # move x labels downward
+            ax.yaxis.set_label_coords(-0.4, 0.5) # move y labels leftward
+        # Adjust margins of figure.
+        plt.subplots_adjust(bottom=0.1, top=0.99, left=0.09, right=0.99)
         
         # Middle diagonal is tri_axes[ii*samples_tri.shape[1] + ii] for ii in range(0,samples_tri.shape[1]).
         tri_diag = [tri_axes[ii*samples_tri.shape[1] + ii] for ii in range(0,samples_tri.shape[1])]
         for aa, ax in enumerate(tri_diag):
-            priors = prior_dict_tri[pkeys_tri[aa]]
+            priors = prior_dict_tri[tri_incl[aa]]
             ax.axvline(x=priors[0], c='k', linestyle='-', linewidth=1.5)
             ax.axvline(x=priors[1], c='k', linestyle='-', linewidth=1.5)
         
