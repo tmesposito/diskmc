@@ -207,12 +207,20 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         range_dict = dict()
         for pk in pkeys:
             range_dict[pk] = (None, None)
+    else:
+        for pk in pkeys:
+            if pk not in range_dict.keys():
+                range_dict[pk] = (None, None)
     
     # Boundaries for the prior to display in the triangle plot.
     if prior_dict_tri is None:
-        prior_dict_tri = dict()
-        for pk in pkeys:
-            prior_dict_tri[pk] = (None, None)
+        # Ideally, priors are stored in the sampler log- try to grab those.
+        try:
+            prior_dict_tri = sampler['logpargs'][1]
+        except:
+            prior_dict_tri = dict()
+            for pk in pkeys:
+                prior_dict_tri[pk] = (None, None)
     
     # Compute Gelman-Rubin statistic of chain convergence. https://blog.stata.com/2016/05/26/gelman-rubin-convergence-diagnostic-using-multiple-chains/
     # mm denotes the mth simulated chain, with m = 1, ..., M.
@@ -453,14 +461,11 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         
         
         # Custom order for corner plot.
-        pkeys_tri = np.array(['inc', 'r_in', 'scale_height',
-            'debris_disk_vertical_profile_exponent', 'surface_density_exp',
+        pkeys_tri = np.array(['inc', 'r_critical', 'r_in', 'r_out', 'scale_height',
+            'disk_pa', 'debris_disk_vertical_profile_exponent', 'surface_density_exp',
             'gamma_exp', 'dust_mass', 'amin', 'aexp', 'porosity',
             'dust_pop_0_mass_fraction', 'dust_pop_1_mass_fraction',
             'dust_pop_2_mass_fraction'])
-        if newversion:
-            pkeys_tri = np.insert(pkeys_tri, 1, 'r_critical')
-            pkeys_tri = np.append(pkeys_tri, np.array(['disk_pa']))
         
         # Sorting indices for keys.
         tri_sort = []
@@ -505,19 +510,22 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         if xticks_dict_tri is not None:
             for cc in range(0, samples_tri.shape[1]):
                 ax_list = [tri_axes[cc + jj*samples_tri.shape[1]] for jj in range(samples_tri.shape[1])]
-                for rr, ax in enumerate(ax_list):
-                    # Ignore the empty upper-right corner of triangle plot.
-                    if rr >= cc:
-                        ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator(xticks_dict_tri[tri_incl[cc]]))
-                        if rr != cc:
-                            ax.yaxis.set_major_locator(matplotlib.ticker.FixedLocator(xticks_dict_tri[tri_incl[:][rr]]))
-                            # pdb.set_trace()
-                        elif rr==cc:
-                            ax.yaxis.set_visible(False)
-                    if ax==ax_list[-1]:
-                        ax.set_xticklabels(xticks_dict_tri[tri_incl[cc]])
-                    if ((cc==0) and (rr > 0)):
-                        ax.set_yticklabels(xticks_dict_tri[tri_incl[rr]])
+                try:
+                    for rr, ax in enumerate(ax_list):
+                        # Ignore the empty upper-right corner of triangle plot.
+                        if rr >= cc:
+                            ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator(xticks_dict_tri[tri_incl[cc]]))
+                            if rr != cc:
+                                ax.yaxis.set_major_locator(matplotlib.ticker.FixedLocator(xticks_dict_tri[tri_incl[:][rr]]))
+                                # pdb.set_trace()
+                            elif rr==cc:
+                                ax.yaxis.set_visible(False)
+                        if ax==ax_list[-1]:
+                            ax.set_xticklabels(xticks_dict_tri[tri_incl[cc]])
+                        if ((cc==0) and (rr > 0)):
+                            ax.set_yticklabels(xticks_dict_tri[tri_incl[rr]])
+                except:
+                    continue
         
         for ax in tri_axes:
             ax.tick_params(axis='both', which='both', labelsize=fontsize_tri-1) #, direction='in') # change tick label size

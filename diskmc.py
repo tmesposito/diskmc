@@ -50,7 +50,7 @@ class MCData:
     Class that contains data, uncertainties, and associated info.
     """
     
-    def __init__(self, data, stars, uncerts, bin_facts=None, mask_params=None,
+    def __init__(self, data, data_types, stars, uncerts, bin_facts=None, mask_params=None,
                  s_ident='no_ident'):
         """
         Initialization code for MCData.
@@ -58,6 +58,9 @@ class MCData:
         Inputs:
             data: list of data products (images, SED points, etc.) that will be used
                 to compute the likelihood function (i.e. will be "fit").
+            data_types: list of str labels for each data type in data (in same order);
+                e.g. ['Qr', 'Q', 'U', 'I'] for radial Stokes Q, Stokes Q,
+                Stokes U, and total intensity.
             stars: list of array(y,x) integer positions for the star in each data
                 product; element should be None if not relevant (like for an SED).
             uncerts: list of uncertainties for data products.
@@ -68,6 +71,7 @@ class MCData:
         """
         
         self.data = data
+        self.data_types = data_types
         self.stars = stars
         self.uncerts = uncerts
         self.bin_facts = bin_facts
@@ -238,67 +242,64 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam
     return
 
 
-# FIX ME!!! This whole chi2_morph function needs generalization to
-# multiple kinds and numbers of images.
-
-def chi2_morph(path, data, uncerts, mod_bin_factor,
+def chi2_morph(path, data, uncerts, data_types, mod_bin_factor,
                phi_stokes, unit_conv):
+    """
+    Calculate simple chi-squared for each data-model pair. Only pertains to
+    morphological models (i.e., images) and not SED's, photometry, etc.
+    
+    NOTE! Currently assumes same binning factor for every model.
+    
+    """
     
     # Use try/except to prevent failed MCFOST models from killing the MCMC.
     try:
         # Load latest model from file.
         model = fits.getdata(path + '/RT.fits.gz') # [W/m^2...]
-        # Convert models to mJy/arcsec^2 to match data.
-        # model_I = unit_conv*model[0,0,0,:,:] # [mJy/arcsec^2]
-        model_Qr, model_Ur = get_radial_stokes(model[1,0,0,:,:], model[2,0,0,:,:], phi_stokes) # [W/m^2...]
-        model_Qr *= unit_conv # [mJy/arcsec^2]
         
- # FIX ME!!! Forward modeling is currently disabled.
-        # if algo=='loci':
-        #     model_I = do_fm_loci(dataset, model_I.copy(), c_list)
-        # elif algo=='pyklip':
-        #     # Forward model to match the KLIP'd data.
-        #     model_I = do_fm_pyklip(modfm, dataset, model_I.copy())
-    
-        if mod_bin_factor not in [None, 1]:
-            # model_I = zoom(model_I.copy(), 1./mod_bin_factor)*mod_bin_factor
-            model_Qr = zoom(model_Qr.copy(), 1./mod_bin_factor)*mod_bin_factor
+        chi2s = []
         
-        # Calculate simple chi^2 for I and Qr data.
-        # chi2_I = np.nansum(((data_I - model_I)/uncertainty_I)**2)
-        chi2_Qr = np.nansum(((data[0] - model_Qr)/uncerts[0])**2)
+        for ii, dt in enumerate(data_types):
+            if dt == 'Qr':
+                mod_use, model_Ur = get_radial_stokes(model[1,0,0,:,:], model[2,0,0,:,:], phi_stokes) # [W/m^2...]
+            elif dt == 'I':
+                mod_use = model[0,0,0,:,:]
+                
+ # FIX ME!!! Total intensity forward modeling is currently disabled.
+                # if algo=='loci':
+                #     mod_use = do_fm_loci(dataset, mod_use.copy(), c_list)
+                # elif algo=='pyklip':
+                #     # Forward model to match the KLIP'd data.
+                #     mod_use = do_fm_pyklip(modfm, dataset, model_I.copy())
+            
+            elif dt == 'Q':
+                mod_use = model[1,0,0,:,:]
+            elif dt == 'U':
+                mod_use = model[2,0,0,:,:]
+            
+            # Convert units of model according to unit_conv.
+            mod_use *= unit_conv # [converted brightness units]
+            # Bin model by mod_bin_factor and conserve flux.
+            mod_use = zoom(mod_use.copy(), 1./mod_bin_factor)*mod_bin_factor
+            
+            # Calculate simple chi^2 data and model.
+            chi2s.append(np.nansum(((data[ii] - mod_use)/uncerts[ii])**2))
+            
+            # # Or, calculate reduced chi^2.
+            # chi2_Qr = chi_Qr/(np.where(np.isfinite(data_Qr))[0].size + len(theta))
         
-        # # Or, calculate reduced chi^2 for I and Qr data.
-        # chi2_I = chi_I/(np.where(np.isfinite(data_I))[0].size + len(theta))
-        # chi2_Qr = chi_Qr/(np.where(np.isfinite(data_Qr))[0].size + len(theta))
-        return np.array(chi2_Qr)
+        return np.array(chi2s)
     except:
-        return np.array(np.inf) #, np.inf
+        return np.array(np.inf)
 
 
-def mc_lnlike(pl, pkeys, data, uncerts, mod_bin_factor, phi_stokes,
+def mc_lnlike(pl, pkeys, data, uncerts, data_types, mod_bin_factor, phi_stokes,
              parfile, model_path, unit_conv, priors,
              lam, partemp, ndim, write_model, s_ident):
     """
-    Computes and returns the natural log of the likelihood 
-    value for a given model.
+    Computes and returns the natural log of the likelihood value
+    for a given model.
     
-    if par.l_stokes == True:
-        imageuncert, imagechi, seduncert, sedchi, poluncert, polchi = mcmcwrapper(theta)
-        
-        lnpimage = -0.5*np.log(2*np.pi)*imageuncert.size-0.5*imagechi-np.sum(-np.log(imageuncert))
-        lnppol = -0.5*np.log(2*np.pi)*poluncert.size-0.5*polchi-np.sum(-np.log(poluncert))
-        lnpsed = -0.5*np.log(2*np.pi)*seduncert.size-0.5*sedchi-np.sum(-np.log(seduncert))
-        
-        return lnpimage + lnppol + lnpsed
-    
-    else:
-        imageuncert, imagechi, seduncert, sedchi = mcmcwrapper(theta)
-        
-        lnpimage = -0.5*np.log(2*np.pi)*imageuncert.size-0.5*imagechi-np.sum(-np.log(imageuncert))
-        lnpsed = -0.5*np.log(2*np.pi)*seduncert.size-0.5*sedchi-np.sum(-np.log(seduncert))
-        
-        return lnpimage + lnpsed
     """
     
     # Update pl_dict with new values for convenience.
@@ -325,10 +326,9 @@ def mc_lnlike(pl, pkeys, data, uncerts, mod_bin_factor, phi_stokes,
     
     # Calculate Chi2 for all images in data.
     chi2s = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
-                        data, uncerts, mod_bin_factor,
+                        data, uncerts, data_types, mod_bin_factor,
                         phi_stokes, unit_conv)
-    # # Calculate reduced Chi2 for images and SED.
-    # chi2_red_I = chi2_I/(np.where(np.isfinite(data_I))[0].size - ndim)
+    # # Calculate reduced Chi2 for images.
     # chi2_red_Qr = chi2_Qr/(np.where(np.isfinite(data_Qr))[0].size - ndim)
     
     if not write_model:
@@ -356,6 +356,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     
     data = mcdata.data
     uncerts = mcdata.uncerts
+    data_types = np.array(mcdata.data_types) # need as nd.array for later
     stars = mcdata.stars
     
     model_path = mcmod.model_path
@@ -381,10 +382,10 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     if mcdata.bin_facts is None:
         mcdata.bin_facts = len(data)*[1]
     
+    data_orig = []
+    uncerts_orig = []
+    stars_orig = []
     for ii, bin_fact in enumerate(mcdata.bin_facts):
-        data_orig = []
-        uncerts_orig = []
-        stars_orig = []
         if bin_fact not in [1, None]:
             # Store the original data as backup.
             data_orig.append(data[ii].copy())
@@ -492,8 +493,8 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     if partemp:
         # Pass data_I, uncertainty_I, and parfile as arguments to emcee sampler.
         sampler = PTSampler(ntemps, nwalkers, ndim, mc_lnlike, mc_lnprior,
-                      loglargs=[pkeys_all, data, uncerts, mcmod.mod_bin_factor, phi_stokes,
-                        mcmod.parfile, model_path, unit_conv, mcmod.priors,
+                      loglargs=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
+                        phi_stokes, mcmod.parfile, model_path, unit_conv, mcmod.priors,
                         lam, partemp, ndim, write_model, s_ident],
                       logpargs=[pkeys_all, mcmod.priors],
                         threads=nthreads)
@@ -504,8 +505,8 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         
     else:
         sampler = EnsembleSampler(nwalkers, ndim, mc_lnlike,
-                      args=[pkeys_all, data, uncerts, mcmod.mod_bin_factor, phi_stokes,
-                        mcmod.parfile, model_path, unit_conv, mcmod.priors,
+                      args=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
+                        phi_stokes, mcmod.parfile, model_path, unit_conv, mcmod.priors,
                         lam, partemp, ndim, write_model, s_ident],
                       # logpargs=[pkeys_all],
                         threads=nthreads)
@@ -743,28 +744,25 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         
         # Calculate Chi2 for images.
         chi2s = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
-                            data, uncerts, mcmod.mod_bin_factor, phi_stokes, unit_conv)
+                            data, uncerts, data_types, mcmod.mod_bin_factor, phi_stokes, unit_conv)
         # Calculate reduced Chi2 for images.
-        # chi2_red_I = chi2_I/(np.where(np.isfinite(data_I_masked.filled(np.nan)))[0].size - ndim)
-        chi2_red_Qr = chi2s/(np.where(np.isfinite(data[0].filled(np.nan)))[0].size - ndim)
-        
-        # chi2_red_total = chi2_red_I + chi2_red_Qr
-        chi2_red_total = chi2_red_Qr
+        chi2_reds = np.array([chi2s[ii]/(np.where(np.isfinite(data[ii].filled(np.nan)))[0].size - ndim) for ii in range(len(data))])
+        chi2_red_total = np.sum(chi2_reds)
         
         if mm==0:
             lk_type = 'Max-Likelihood'
             # print('\nMax-Likelihood total chi2_red: %.3e | SED Cushing G: %.3e , I chi2_red: %.3f , Qr chi2_red: %.3f' % (chi2_red_total, G_mm, chi2_red_I, chi2_red_Qr))
             # mcmc_log.writelines('\n\nMax-Likelihood total chi2_red: %.3e | SED Cushing G: %.3e , I chi2_red: %.3f , Qr chi2_red: %.3f' % (chi2_red_total, G_mm, chi2_red_I, chi2_red_Qr))
         elif mm==1:
-            lk_type = '50%%-Likelihood'
+            lk_type = '50%-Likelihood'
             # print('50%%-Likelihood total chi2_red: %.3e | SED Cushing G: %.3e , I chi2_red: %.3f , Qr chi2_red: %.3f' % (chi2_red_total, G_mm, chi2_red_I, chi2_red_Qr))
             # mcmc_log.writelines('\n50%%-Likelihood total chi2_red: %.3e | SED Cushing G: %.3e , I chi2_red: %.3f , Qr chi2_red: %.3f' % (chi2_red_total, G_mm, chi2_red_I, chi2_red_Qr))
         # print('%s total chi2_red: %.3e | SED Cushing G: %.3e , I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, G_mm, chi2_red_I, chi2_red_Qr))
         # mcmc_log.writelines('\n%s total chi2_red: %.3e | SED Cushing G: %.3e , I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, G_mm, chi2_red_I, chi2_red_Qr))
-        # print('%s total chi2_red: %.3e | I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, chi2_red_I, chi2_red_Qr))
-        # mcmc_log.writelines('\n%s total chi2_red: %.3e | I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, chi2_red_I, chi2_red_Qr))
-        print('%s total chi2_red: %.3e | Qr chi2_red: %.3f' % (lk_type, chi2_red_total, chi2_red_Qr))
-        mcmc_log.writelines('\n%s total chi2_red: %.3e | Qr chi2_red: %.3f' % (lk_type, chi2_red_total, chi2_red_Qr))
+        print('%s total chi2_red: %.3e' % (lk_type, chi2_red_total))
+        print("individual chi2_red's: " + len(chi2_reds)*"%.3e | " % tuple(chi2_reds))
+        mcmc_log.writelines('\n%s total chi2_red: %.3e' % (lk_type, chi2_red_total))
+        mcmc_log.writelines("\nindividual chi2_red's: " + len(chi2_reds)*"%.3e | " % tuple(chi2_reds))
         
         # Make scattered-light and dust properties models for maxlk and meanlk.
         try:
