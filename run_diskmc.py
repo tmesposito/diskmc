@@ -129,7 +129,7 @@ data_Qr_masked = np.ma.masked_array(data_Qr, mask_fit)
 
 
 # Create a handy MCData object to hold all data and associated variables.
-data_35841 = MCData([data_Qr_masked], [star], [uncertainty_Qr], [bin_factor],
+data_info = MCData([data_Qr_masked], [star], [uncertainty_Qr], [bin_factor],
                     [(hw_y, hw_x, r_fit)], s_ident)
 
 
@@ -203,14 +203,14 @@ priors = dict(aexp=(2.0, 6.5), amin=(-1.0, 1.6),
 
 
 # Create a handy MCMod instance to hold basic model info.
-mod_35841 = MCMod(plims_lib.keys(), parfile, pmeans_lib, psigmas_lib, plims_lib, priors,
+mod_info = MCMod(plims_lib.keys(), parfile, pmeans_lib, psigmas_lib, plims_lib, priors,
                   lam, conv_WtoJy, mod_bin_factor, model_path, log_path, s_ident)
 
 
 # |----- RUN THE MCMC -----| #
 if __name__=='__main__':
     mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
-            mcdata=data_35841, mcmod=mod_35841, partemp=partemp, mc_a=mc_a, init_samples_fn=init_samples_fn,
+            mcdata=data_info, mcmod=mod_info, partemp=partemp, mc_a=mc_a, init_samples_fn=init_samples_fn,
             write_model=write_model, plot=False, save=False)
 
 

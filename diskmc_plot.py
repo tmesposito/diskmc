@@ -36,6 +36,7 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
     
     """
     import gzip, corner, acor, hickle
+    from diskmc import make_mcfmod
     matplotlib.rc('text', usetex=False)
     
     print "\nThinning samples by %d" % nthin
@@ -169,18 +170,24 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
     # Make MCFOST models from maxlk and meanlk params if desired.
     if make_maxlk:
         pl_maxlk[pkeys=='amin'] = 10**pl_maxlk[pkeys=='amin']
-        dir_newmod = path + '%s_maxlk_manual/' % s_ident
-        make_mcfost_models([pl_maxlk], pkeys, dir_newmod,
-                '../diskmc_init_%s' % s_ident,
-                '%s_mcmc_maxlk' % s_ident,
-                random=False, lam=lam, dust_only=False, silent=True)
+        dir_newmod = path + '../diskmc_%s/' % s_ident
+        print("\nMaking max-likelihood model with MCFOST...")
+        make_mcfmod(pkeys, dict(zip(pkeys, pl_maxlk)), path + '../diskmc_init_%s.para' % s_ident,
+                    dir_newmod, s_ident, fnstring='%s_mcmc_maxlk' % s_ident, lam=lam)
+        # make_mcfost_models([pl_maxlk], pkeys, dir_newmod,
+        #         '../diskmc_init_%s' % s_ident,
+        #         '%s_mcmc_maxlk' % s_ident,
+        #         random=False, lam=lam, dust_only=False, silent=True)
     if make_medlk:
         pl_medlk[pkeys=='amin'] = 10**pl_medlk[pkeys=='amin']
-        dir_newmod = path + '%s_medlk_manual/' % s_ident
-        make_mcfost_models([pl_medlk], pkeys, dir_newmod,
-                '../diskmc_init_%s' % s_ident,
-                '%s_mcmc_medlk' % s_ident,
-                random=False, lam=lam, dust_only=False, silent=True)
+        dir_newmod = path + '../diskmc_%s/' % s_ident
+        print("\nMaking median-likelihood model with MCFOST...")
+        make_mcfmod(pkeys, dict(zip(pkeys, pl_medlk)), path + '../diskmc_init_%s.para' % s_ident,
+                    dir_newmod, s_ident, fnstring='%s_mcmc_medlk' % s_ident, lam=lam)
+        # make_mcfost_models([pl_medlk], pkeys, dir_newmod,
+        #         '../diskmc_init_%s' % s_ident,
+        #         '%s_mcmc_medlk' % s_ident,
+        #         random=False, lam=lam, dust_only=False, silent=True)
     
     # Variable labels for display.
     if newversion:
