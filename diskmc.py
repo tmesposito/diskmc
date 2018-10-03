@@ -768,7 +768,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         # mcmc_log.writelines('\n%s total chi2_red: %.3e | SED Cushing G: %.3e , I chi2_red: %.3f , Qr chi2_red: %.3f' % (lk_type, chi2_red_total, G_mm, chi2_red_I, chi2_red_Qr))
         print('%s total chi2_red: %.3e' % (lk_type, chi2_red_total))
         print("individual chi2_red's: " + len(chi2_reds)*"%.3e | " % tuple(chi2_reds))
-        mcmc_log.writelines('\n%s total chi2_red: %.3e' % (lk_type, chi2_red_total))
+        mcmc_log.writelines('\n\n%s total chi2_red: %.3e' % (lk_type, chi2_red_total))
         mcmc_log.writelines("\nindividual chi2_red's: " + len(chi2_reds)*"%.3e | " % tuple(chi2_reds))
         
         # Make scattered-light and dust properties models for maxlk and meanlk.
