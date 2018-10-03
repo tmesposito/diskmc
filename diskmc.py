@@ -216,9 +216,12 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam
     try:
         os.mkdir(modeldir)
     except OSError:
-        rmtree(modeldir)
-        time.sleep(0.2) # short pause after removing directory to make sure completes
-        os.mkdir(modeldir)
+        time.sleep(0.5) # short pause
+# FIX ME!!! This rmtree will cause an OSError if the directory doesn't exist.
+# Need a better solution than this try/except block.
+        rmtree(modeldir) # delete any existing directory
+        time.sleep(0.5) # pause after removing directory to make sure completes
+        os.mkdir(modeldir) # try to make directory again
     
     # Write the .para file in the directory specific to given model.
     par.writeto(modeldir + '/%s.para' % fnstring)
@@ -322,7 +325,11 @@ def mc_lnlike(pl, pkeys, data, uncerts, data_types, mod_bin_factor, phi_stokes,
                    (s_ident, pkeys[0], pl_dict[pkeys[0]])
     
     # Write the MCFOST .para file and create the model.
-    make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring, lam)
+    # try/except here works around some unsolved directory creation/deletion issues.
+    try:
+        make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring, lam)
+    except:
+        return -np.inf
     
     # Calculate Chi2 for all images in data.
     chi2s = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
@@ -392,7 +399,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             uncerts_orig.append(uncerts[ii].copy())
             # Bin data, uncertainties, and mask by interpolation.
             datum_binned = zoom(np.nan_to_num(data_orig[ii].data), 1./bin_fact)*bin_fact
-            uncert_binned = zoom(np.nan_to_num(uncerts_orig[ii]), 1./bin_fact)*bin_fact
+            uncert_binned = zoom(np.nan_to_num(uncerts_orig[ii]), 1./bin_fact, order=1)*bin_fact
  # FIX ME!!! Interpolating the mask may not work perfectly. Linear interpolation (order=1)
  # is best so far.
             try:
