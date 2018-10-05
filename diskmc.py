@@ -709,9 +709,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     params_ml_mcmc = dict(zip(pkeys_all, ch[ind_lk_max][0]))
     params_ml_mcmc_sorted = [val for (key, val) in sorted(params_ml_mcmc.items())]
     
-    # Get mean values (50th percentile) and 1-sigma (68%) confidence intervals
+    # Get median values (50th percentile) and 1-sigma (68%) confidence intervals
     # for each parameter (in order +, -).
-    params_mean_mcmc = map(lambda vv: (vv[1], vv[2]-vv[1], vv[1]-vv[0]),
+    params_med_mcmc = map(lambda vv: (vv[1], vv[2]-vv[1], vv[1]-vv[0]),
                         zip(*np.percentile(samples, [16, 50, 84], axis=0)))
     
     print("\nMax-Likelihood Param Values:")
@@ -723,15 +723,15 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     print("\n50%-Likelihood Param Values (50th percentile +/- 1 sigma (i.e., 34%):")
     mcmc_log.writelines('\n\n50%-LIKELIHOOD PARAM VALUES (50th percentile +/- 1 sigma (i.e., 34%):')
     for kk, key in enumerate(pkeys_all):
-        print(key + ' = %.3f +/- %.3f/%.3f' % (params_mean_mcmc[kk][0], params_mean_mcmc[kk][1], params_mean_mcmc[kk][2]))
-        mcmc_log.writelines('\n%s = %.3f +/- %.3f/%.3f' % (key, params_mean_mcmc[kk][0], params_mean_mcmc[kk][1], params_mean_mcmc[kk][2]))
+        print(key + ' = %.3f +/- %.3f/%.3f' % (params_med_mcmc[kk][0], params_med_mcmc[kk][1], params_med_mcmc[kk][2]))
+        mcmc_log.writelines('\n%s = %.3f +/- %.3f/%.3f' % (key, params_med_mcmc[kk][0], params_med_mcmc[kk][1], params_med_mcmc[kk][2]))
     
     
-    # Construct max- and mean-likelihood models.
+    # Construct max- and med-likelihood models.
     # try:
     print("\nConstructing 'best-fit' models...")
-    mod_idents = ['maxlk', 'meanlk']
-    params_50th_mcmc = np.array(params_mean_mcmc)[:,0]
+    mod_idents = ['maxlk', 'medlk']
+    params_50th_mcmc = np.array(params_med_mcmc)[:,0]
     
     for mm, pl in enumerate([params_ml_mcmc_sorted, params_50th_mcmc]):
         pl_dict = dict()
@@ -771,7 +771,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         mcmc_log.writelines('\n\n%s total chi2_red: %.3e' % (lk_type, chi2_red_total))
         mcmc_log.writelines("\nindividual chi2_red's: " + len(chi2_reds)*"%.3e | " % tuple(chi2_reds))
         
-        # Make scattered-light and dust properties models for maxlk and meanlk.
+        # Make scattered-light and dust properties models for maxlk and medlk.
         try:
             os.chdir(model_path + fnstring)
             # Make the dust properties at proper wavelength.
@@ -792,13 +792,13 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         except:
             print("Failed to save scattered-light and dust properties models.")
     
-    # Plot and save maxlk and meanlk models.
+    # Plot and save maxlk and medlk models.
     try:
         # Placeholder for plotting functions.
         pass
-        print("Max and Mean Likelihood models made, plotted, and saved.\n")
+        print("Max and Median Likelihood models made, plotted, and saved.\n")
     except:
-        print("Max and Mean Likelihood models made and saved but plotting failed.\n")
+        print("Max and Median Likelihood models made and saved but plotting failed.\n")
     
     
     time_end_secs = time.time()
