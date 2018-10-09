@@ -1,6 +1,6 @@
 # DiskMC
 
-A Python framework for running a Markov-Chain Monte Carlo (MCMC) with models of circumstellar disks produced by the MCFOST Monte Carlo and ray-tracing radiative transfer code.
+A Python framework for running a Markov Chain Monte Carlo (MCMC) with models of circumstellar disks produced by the MCFOST Monte Carlo and ray-tracing radiative transfer code.
 
 Note that this package does not include MCFOST itself (Pinte et al. 2006, 2009) and will not run without it.
 
@@ -20,11 +20,11 @@ This will start an MCMC named "example0" that uses 2 parallel temperatures, 20 w
 
 ### MCMC Visualization ###
 
-Some basic visualization tools are provided in `diskmc_plot.py` to analyze the MCMC output. With `diskmc_plot.mc_analyze` you can get posterior distributions, plot walker chains, plot time-step histograms, and (only partially implemented) make corner plots. An example function call to do this for the MCMC above would be:
+Some basic visualization tools are provided in `diskmc_plot.py` to analyze the MCMC output. With `diskmc_plot.mc_analyze` you can get posterior distributions, plot walker chains, plot time-step histograms, and make corner plots. An example function call to do this for the MCMC above would be:
 
 ```
 from diskmc_plot import mc_analyze
-mc_analyze(s_ident='example0', path='~/Desktop/test_dir/diskmc_logs/', ntemp_view=0, partemp=True, newversion=False)
+mc_analyze(s_ident='example0', path='~/Desktop/test_dir/diskmc_logs/', ntemp_view=0, partemp=True)
 ```
 
 ## Attribution ##

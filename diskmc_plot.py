@@ -7,7 +7,7 @@ import matplotlib, matplotlib.pyplot as plt
 
 
 def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=1, 
-                nstop=None, newversion=True, add_fn=None, add_ind=0,
+                nstop=None, add_fn=None, add_ind=0,
                 make_maxlk=False, make_medlk=False, lam=1.6,
                 range_dict=None, range_dict_tri=None, prior_dict_tri=None, xticks_dict_tri=None,
                 plot=True, save=False):
@@ -25,7 +25,6 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
             sample in the chain.
         ntemp_view: int index of temperature to examine (if partemp == True).
         nstop: iteration to truncate the chain at (ignore steps beyond nstop).
-        newversion: soon to be deprecated.
         add_fn: str filename after ".../logs/" for a second sampler to add to the
             first. Must have exactly the same setup.
         add_ind: int index of iteration at which to insert the second sampler.
@@ -190,24 +189,14 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         #         random=False, lam=lam, dust_only=False, silent=True)
     
     # Variable labels for display.
-    if newversion:
-        labels_dict = dict(aexp='$q$', amin=r'log $a_{min}$',
-            debris_disk_vertical_profile_exponent=r'$\gamma$',
-            disk_pa='$PA$', dust_mass=r'log $M_d$', #r'$M_{d}$ ($M_\odot$)',
-            dust_pop_0_mass_fraction=r'$m_{Si}$', dust_pop_1_mass_fraction=r'$m_{aC}$',
-            dust_pop_2_mass_fraction=r'$m_{H20}$', gamma_exp=r'$\alpha_{in}$',
-            inc='$i$', porosity='porosity',
-            r_critical=r'$R_c$', r_in=r'$R_{in}$', r_out=r'$R_{out}$',
-            scale_height=r'$H_0$', surface_density_exp=r'$\alpha_{out}$')
-    else:
-        labels_dict = dict(aexp='$q$', amin=r'log $a_{min}$',
-            debris_disk_vertical_profile_exponent=r'$\gamma$',
-            disk_pa='$PA$', dust_mass=r'log $M_d$', #r'$M_{d}$ ($M_\odot$)',
-            dust_pop_0_mass_fraction=r'$m_{Si}$', dust_pop_1_mass_fraction=r'$m_{aC}$',
-            dust_pop_2_mass_fraction=r'$m_{H20}$', gamma_exp=r'$\alpha_{out}$',
-            inc='$i$', porosity='porosity',
-            r_critical=r'$R_c$', r_in=r'$R_{in}$', r_out=r'$R_{out}$',
-            scale_height=r'$H_0$', surface_density_exp=r'$\alpha_{in}$')
+    labels_dict = dict(aexp='$q$', amin=r'log $a_{min}$',
+        debris_disk_vertical_profile_exponent=r'$\gamma$',
+        disk_pa='$PA$', dust_mass=r'log $M_d$', #r'$M_{d}$ ($M_\odot$)',
+        dust_pop_0_mass_fraction=r'$m_{Si}$', dust_pop_1_mass_fraction=r'$m_{aC}$',
+        dust_pop_2_mass_fraction=r'$m_{H20}$', gamma_exp=r'$\alpha_{in}$',
+        inc='$i$', porosity='porosity',
+        r_critical=r'$R_c$', r_in=r'$R_{in}$', r_out=r'$R_{out}$',
+        scale_height=r'$H_0$', surface_density_exp=r'$\alpha_{out}$')
     
     # Trimmed ranges for walker display plots.
     if range_dict is None:
@@ -263,11 +252,7 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         hist_colors = [matplotlib.cm.viridis(jj) for jj in np.linspace(0, 0.9, N_hists)]
         for jj, pkey in enumerate(pkeys):
             ax = ax_array_hist[jj]
-            # handle one edge case of log10(amin)
-            if (pkey == 'amin') & newversion:
-                priors = (-1., 1.6)
-            else:
-                priors = prior_dict_tri[pkey]
+            priors = prior_dict_tri[pkey]
             max_ind = chunk_size - 1
             hist_ind = 0
             while max_ind <= ch.shape[1]:
@@ -486,9 +471,11 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         tri_incl = np.array(tri_incl)
         # Thin out samples for triangle plot by only plotting every nthin sample.
         samples_tri = samples[::nthin, tri_sort]
-        # Convert disk_pa to on-sky PA (E of N).
-        if newversion:
-            samples_tri[:, np.where(tri_incl=='disk_pa')[0]] = 360. - samples_tri[:, np.where(tri_incl=='disk_pa')[0]]
+        # Convert disk_pa to on-sky PA (E of N) measured to front edge CCW from min scattering angle.
+        if params_medlk['disk_pa'] < 270:
+            samples_tri[:, np.where(tri_incl=='disk_pa')[0]] = samples_tri[:, np.where(tri_incl=='disk_pa')[0]] + 90.
+        elif params_medlk['disk_pa'] >= 270:
+            samples_tri[:, np.where(tri_incl=='disk_pa')[0]] = samples_tri[:, np.where(tri_incl=='disk_pa')[0]] - 270.
         
         labels_tri = [labels_dict[key] for key in tri_incl]
         if range_dict_tri is not None:
