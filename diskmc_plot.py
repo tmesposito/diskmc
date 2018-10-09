@@ -559,6 +559,7 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         # fig_tri = triangle.corner(samples, labels=pkeys)
         if save:
             fig_tri.savefig(path + '%s_corner.pdf' % s_ident, dpi=300, format='pdf')
+            print("\nCorner plot saved as %s\n" % (path + s_ident + '_corner.pdf'))
     
     # To save corner plot manually:
     # figsave = plt.figure(##)
