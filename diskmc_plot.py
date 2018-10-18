@@ -4,26 +4,26 @@ import os
 import pdb
 import numpy as np
 import matplotlib, matplotlib.pyplot as plt
+from emcee import autocorr
 
 
-def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=1, 
+def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=1, 
                 nstop=None, add_fn=None, add_ind=0,
                 make_maxlk=False, make_medlk=False, lam=1.6,
-                range_dict=None, range_dict_tri=None, prior_dict_tri=None, xticks_dict_tri=None,
-                plot=True, save=False):
+                range_dict=None, range_dict_tri=None, prior_dict_tri=None,
+                xticks_dict_tri=None, contour_colors='k', plot=True, save=False):
     """
-    !! WARNING: PARTIALLY FUNCTIONAL !!
-    
     Plot walker chains, histograms, and corner plot for a given sampler.
     
     Inputs:
         s_ident: str identifier of the sampler to display.
         path: str absolute path to the sampler files; include trailing /.
+        partemp: True if sampler contains multiple temperatures.
+        ntemp_view: int index of temperature to examine (if partemp == True).
         nburn: int number of (burn-in) steps to skip at start of sampler
             (usually this is 0 if you reset the chain after the burn-in phase).
         nthin: int sample thinning factor; e.g. nthin=10 will only use every 10th
             sample in the chain.
-        ntemp_view: int index of temperature to examine (if partemp == True).
         nstop: iteration to truncate the chain at (ignore steps beyond nstop).
         add_fn: str filename after ".../logs/" for a second sampler to add to the
             first. Must have exactly the same setup.
@@ -32,9 +32,18 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         make_maxlk: True to make the MCFOST model for the max likelihood params.
         make_medlk: True to make the MCFOST model for the median likelihood params.
         lam: wavelength at which to make maxlk and medlk models [microns].
+        range_dict:
+        range_dict_tri:
+        prior_dict_tri:
+        xticks_dict_tri:
+        contour_colors: str or list of str matplotlib color names to use as corner
+            plot contour line colors.
+    
+    Outputs:
+        Returns nothing, but creates a bunch of figures.
     
     """
-    import gzip, corner, acor, hickle
+    import gzip, corner, hickle
     from diskmc import make_mcfmod
     matplotlib.rc('text', usetex=False)
     
@@ -64,16 +73,11 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
             ch = ch[ntemp_view]
             beta = betas[ntemp_view]
             lnprob = sampler['_lnprob'][ntemp_view]/beta # log probability; dim=[nwalkers, nsteps]
-            # Autocorrelation function.
-            # Get autocorrelation for each dimension as a function of step, averaged over all walkers.
-            # Do not thin this, generally.
-            acf = [acor.function(np.mean(ch[::nthin,nburn:nstop,ii], axis=0)) for ii in range(ndim)]
             print "Analyzing temperature=%d chain only, as specified." % ntemp_view
         else:
             ch = ch[0]
             beta = betas[0]
             lnprob = sampler['_lnprob']/beta
-            acf = [acor.function(np.mean(ch[::nthin,nburn:nstop,ii], axis=0)) for ii in range(ndim)]
             print "Analyzing temperature=0 chain only, because ntemp_view=None."
     else:
         try:
@@ -87,8 +91,17 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         nwalkers = ch.shape[0]
         nstep = ch.shape[1]
         ndim = ch.shape[2]
-        acf = [acor.function(np.mean(ch[::nthin,nburn:,ii], axis=0)) for ii in range(ndim)]
     
+    # Autocorrelation function.
+    # Compute it for each walker in each parameter. Do not thin this, generally.
+    acf_all = np.array([[autocorr.function(ch[ii, :, jj]) for ii in range(nwalkers)] for jj in range(ndim)])
+    # Integrated autocorrelation time.
+    act = np.array([[autocorr.integrated_time(ch[ii, :, jj], c=1) for ii in range(nwalkers)] for jj in range(ndim)])
+    act_means = np.mean(act, axis=1)
+    print("\nIntegrated Autocorrelation Times (steps): " + str(np.round(act_means)))
+    if np.any(act_means*50 >= nstep):
+        print("WARNING: At least one autocorrelation time estimate is shorter than 50*nstep and should not be trusted.")
+
     
     # # Optionally load a second sampler and add it to the main one.
     if add_fn is not None:
@@ -363,7 +376,7 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
             plt.draw()
         
         # Plot lnprob per step.
-        fig4 = plt.figure(53)
+        fig4 = plt.figure(54)
         fig4.clf()
         ax1 = fig4.add_subplot(211)
         ax2 = fig4.add_subplot(212)
@@ -415,22 +428,42 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
         plt.setp(ax1.xaxis.get_majorticklabels(), fontsize=fontSize+1)
         plt.draw()
         
-        # Plot autocorrelation function.
-        fig5 = plt.figure(54, figsize=(5,4))
-        fig5.clf()
-        ax1 = fig5.add_subplot(111)
-        fig5.subplots_adjust(0.18, 0.17, 0.97, 0.97)
-        # ax2 = fig4.add_subplot(212)
-        for ii in range(ndim):
-            ax1.plot(acf[ii][:], "-", label=labels_dict[pkeys[ii]])
-        # Draw line at 20% correlation.
-        ax1.axhline(0.2, c='r')
-        ax1.set_xlabel('tau = lag (steps)')
-        ax1.set_ylabel('Autocorrelation', labelpad=8)
-        # ax1.set_title('ln(prob) for each walker at each step')
-        # ax1.set_xlim(0,600)
-        ax1.set_ylim(-0.1,1.1)
-        plt.legend(fontsize=12, loc=1, labelspacing=0.1, handlelength=1.3, handletextpad=0.5)
+        # # Plot mean autocorrelation lags.
+        # fig5 = plt.figure(54, figsize=(5,4))
+        # fig5.clf()
+        # ax1 = fig5.add_subplot(111)
+        # fig5.subplots_adjust(0.18, 0.17, 0.97, 0.97)
+        # # ax2 = fig4.add_subplot(212)
+        # for ii in range(ndim):
+        #     ax1.plot(acf[ii][:], "-", label=labels_dict[pkeys[ii]])
+        # # Draw line at 20% correlation.
+        # ax1.axhline(0.2, c='r')
+        # ax1.set_xlabel('tau = lag (steps)')
+        # ax1.set_ylabel('Autocorrelation', labelpad=8)
+        # # ax1.set_xlim(0,600)
+        # ax1.set_ylim(-0.1,1.1)
+        # plt.legend(fontsize=12, loc=1, labelspacing=0.1, handlelength=1.3, handletextpad=0.5)
+        # plt.draw()
+        
+        # Plot autocorrelation functions for each walker and parameter.
+        fig7 = plt.figure(56, figsize=(5,8))
+        fig7.clf()
+        for aa, ff in enumerate(range(0, ndim, 1)):
+            sbpl = "%d1%d" % (ndim, aa+1)
+            ax = fig7.add_subplot(int(sbpl))
+            ax.axhline(y=0, color='c', linestyle='--')
+            for ac in acf_all[aa]:
+                ax.plot(ac, c='k', alpha=10./nwalkers)
+            ax.plot(np.mean(acf_all[aa], axis=0), c='r', linewidth=1)
+            ax.text(0.7, 0.8, pkeys[aa], color='r', fontsize=10, weight='bold', transform=ax.transAxes)
+            # Hide all but the bottom axis labels.
+            if aa != ndim - 1:
+                ax.set_yticklabels(['']*ax.get_yticklabels().__len__())
+                ax.set_xticklabels(['']*ax.get_xticklabels().__len__())
+            ax.set_ylim(-1, 1)
+            plt.setp(ax.yaxis.get_majorticklabels(), fontsize=12)
+            plt.setp(ax.xaxis.get_majorticklabels(), fontsize=12)
+        fig7.suptitle("Normalized Autocorrelation Functions", fontsize=14)        
         plt.draw()
         
         
@@ -491,7 +524,8 @@ def mc_analyze(s_ident, path='.', nburn=0, partemp=True, ntemp_view=None, nthin=
                                 show_titles=False, verbose=True, max_n_ticks=3,
                                 plot_datapoints=True, plot_contours=True, fill_contours=True,
                                 range=range_tri, plot_density=False,
-                                data_kwargs={'color':'0.6', 'alpha':0.2, 'ms':1.}) #, hist_kwargs=dict(align='left'))
+                                data_kwargs={'color':'0.6', 'alpha':0.2, 'ms':1.},
+                                contour_kwargs={'colors':contour_colors}) #, hist_kwargs=dict(align='left'))
         
         # Adjust figure/axes attributes after creation.
         # fig_tri.set_size_inches(18, fig_tri.get_size_inches()[1], forward=True)
