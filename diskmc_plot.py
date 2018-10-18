@@ -94,9 +94,9 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     
     # Autocorrelation function.
     # Compute it for each walker in each parameter. Do not thin this, generally.
-    acf_all = np.array([[autocorr.function(ch[ii, :, jj]) for ii in range(nwalkers)] for jj in range(ndim)])
+    acf_all = np.array([[autocorr.function(ch[ii, :nstop, jj]) for ii in range(nwalkers)] for jj in range(ndim)])
     # Integrated autocorrelation time.
-    act = np.array([[autocorr.integrated_time(ch[ii, :, jj], c=1) for ii in range(nwalkers)] for jj in range(ndim)])
+    act = np.array([[autocorr.integrated_time(ch[ii, :nstop, jj], c=1) for ii in range(nwalkers)] for jj in range(ndim)])
     act_means = np.mean(act, axis=1)
     print("\nIntegrated Autocorrelation Times (steps): " + str(np.round(act_means)))
     if np.any(act_means*50 >= nstep):
