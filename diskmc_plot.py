@@ -93,15 +93,18 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         ndim = ch.shape[2]
     
     # Autocorrelation function.
-    # Compute it for each walker in each parameter. Do not thin this, generally.
-    acf_all = np.array([[autocorr.function(ch[ii, :nstop, jj]) for ii in range(nwalkers)] for jj in range(ndim)])
-    # Integrated autocorrelation time.
-    act = np.array([[autocorr.integrated_time(ch[ii, :nstop, jj], c=1) for ii in range(nwalkers)] for jj in range(ndim)])
-    act_means = np.mean(act, axis=1)
-    print("\nIntegrated Autocorrelation Times (steps): " + str(np.round(act_means)))
-    if np.any(act_means*50 >= nstep):
-        print("WARNING: At least one autocorrelation time estimate is shorter than 50*nstep and should not be trusted.")
-
+    try:
+        # Compute it for each walker in each parameter. Do not thin this, generally.
+        acf_all = np.array([[autocorr.function(ch[ii, :nstop, jj]) for ii in range(nwalkers)] for jj in range(ndim)])
+        # Integrated autocorrelation time.
+        act = np.array([[autocorr.integrated_time(ch[ii, :nstop, jj], c=1) for ii in range(nwalkers)] for jj in range(ndim)])
+        act_means = np.mean(act, axis=1)
+        print("\nIntegrated Autocorrelation Times (steps): " + str(np.round(act_means)))
+        if np.any(act_means*50 >= nstep):
+            print("WARNING: At least one autocorrelation time estimate is shorter than 50*nstep and should not be trusted.")
+    except:
+        acf_all = None
+        print("Failed to calculate autocorrelation functions. Chain may be too short.")
     
     # # Optionally load a second sampler and add it to the main one.
     if add_fn is not None:
@@ -161,7 +164,6 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     
     print "\nMax Likelihood = %.3f  (chain %d, step %d) and param values:" % (lk_max, ind_lk_max[0][0], ind_lk_max[1][0])
     for kk, key in enumerate(pkeys[pkeys!='spl_br']):
-        #print "mu0 = %.2f +/- %.2f/%2f \nmu1 = %.2f +/- %.2f/%2f \nsig0 = %.2f +/- %.2f/%2f \nsig1 = %.2f +/- %.2f/%2f" % (mu0_mcmc[0], mu0_mcmc[1], mu0_mcmc[2], mu1_mcmc[0], mu1_mcmc[1], mu1_mcmc[2], sig0_mcmc[0], sig0_mcmc[1], sig0_mcmc[2], sig1_mcmc[0], sig1_mcmc[1], sig1_mcmc[2])
         print key, '= %.3f' % ch[ind_lk_max[0], ind_lk_max[1], kk]
         params_maxlk[key] = ch[ind_lk_max[0], ind_lk_max[1], kk][0]
     pl_maxlk = np.array([params_maxlk[pk] for pk in pkeys])
@@ -174,40 +176,29 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         
     print "\nMedian (50%) and 34% confidence intervals:"
     for kk, key in enumerate(pkeys[pkeys!='spl_br']):
-        #print "mu0 = %.2f +/- %.2f/%2f \nmu1 = %.2f +/- %.2f/%2f \nsig0 = %.2f +/- %.2f/%2f \nsig1 = %.2f +/- %.2f/%2f" % (mu0_mcmc[0], mu0_mcmc[1], mu0_mcmc[2], mu1_mcmc[0], mu1_mcmc[1], mu1_mcmc[2], sig0_mcmc[0], sig0_mcmc[1], sig0_mcmc[2], sig1_mcmc[0], sig1_mcmc[1], sig1_mcmc[2])
         print key, '= %.3f +/- %.3f/%.3f  (%.3f, %.3f) ; 99.7%% (%.3f, %.3f)' % (perc_list[kk][0], perc_list[kk][1], perc_list[kk][2], perc_list[kk][0]+perc_list[kk][1], perc_list[kk][0]-perc_list[kk][2], perc_3sigma_list[kk][0]+perc_3sigma_list[kk][1], perc_3sigma_list[kk][0]-perc_3sigma_list[kk][2])
         params_medlk[key] = perc_list[kk][0]
     pl_medlk = np.array([params_medlk[pk] for pk in pkeys])
     
     # Make MCFOST models from maxlk and meanlk params if desired.
     if make_maxlk:
-        pl_maxlk[pkeys=='amin'] = 10**pl_maxlk[pkeys=='amin']
         dir_newmod = path + '../diskmc_%s/' % s_ident
         print("\nMaking max-likelihood model with MCFOST...")
         make_mcfmod(pkeys, dict(zip(pkeys, pl_maxlk)), path + '../diskmc_init_%s.para' % s_ident,
                     dir_newmod, s_ident, fnstring='%s_mcmc_maxlk' % s_ident, lam=lam)
-        # make_mcfost_models([pl_maxlk], pkeys, dir_newmod,
-        #         '../diskmc_init_%s' % s_ident,
-        #         '%s_mcmc_maxlk' % s_ident,
-        #         random=False, lam=lam, dust_only=False, silent=True)
     if make_medlk:
-        pl_medlk[pkeys=='amin'] = 10**pl_medlk[pkeys=='amin']
         dir_newmod = path + '../diskmc_%s/' % s_ident
         print("\nMaking median-likelihood model with MCFOST...")
         make_mcfmod(pkeys, dict(zip(pkeys, pl_medlk)), path + '../diskmc_init_%s.para' % s_ident,
                     dir_newmod, s_ident, fnstring='%s_mcmc_medlk' % s_ident, lam=lam)
-        # make_mcfost_models([pl_medlk], pkeys, dir_newmod,
-        #         '../diskmc_init_%s' % s_ident,
-        #         '%s_mcmc_medlk' % s_ident,
-        #         random=False, lam=lam, dust_only=False, silent=True)
     
     # Variable labels for display.
     labels_dict = dict(aexp='$q$', amin=r'log $a_{min}$',
         debris_disk_vertical_profile_exponent=r'$\gamma$',
         disk_pa='$PA$', dust_mass=r'log $M_d$', #r'$M_{d}$ ($M_\odot$)',
         dust_pop_0_mass_fraction=r'$m_{Si}$', dust_pop_1_mass_fraction=r'$m_{aC}$',
-        dust_pop_2_mass_fraction=r'$m_{H20}$', gamma_exp=r'$\alpha_{in}$',
-        inc='$i$', porosity='porosity',
+        dust_pop_2_mass_fraction=r'$m_{H20}$', dust_vmax=r'$V_{max}$',
+        gamma_exp=r'$\alpha_{in}$', inc='$i$', porosity='porosity',
         r_critical=r'$R_c$', r_in=r'$R_{in}$', r_out=r'$R_{out}$',
         scale_height=r'$H_0$', surface_density_exp=r'$\alpha_{out}$')
     
@@ -448,21 +439,22 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         # Plot autocorrelation functions for each walker and parameter.
         fig7 = plt.figure(56, figsize=(5,8))
         fig7.clf()
-        for aa, ff in enumerate(range(0, ndim, 1)):
-            sbpl = "%d1%d" % (ndim, aa+1)
-            ax = fig7.add_subplot(int(sbpl))
-            ax.axhline(y=0, color='c', linestyle='--')
-            for ac in acf_all[aa]:
-                ax.plot(ac, c='k', alpha=10./nwalkers)
-            ax.plot(np.mean(acf_all[aa], axis=0), c='r', linewidth=1)
-            ax.text(0.7, 0.8, pkeys[aa], color='r', fontsize=10, weight='bold', transform=ax.transAxes)
-            # Hide all but the bottom axis labels.
-            if aa != ndim - 1:
-                ax.set_yticklabels(['']*ax.get_yticklabels().__len__())
-                ax.set_xticklabels(['']*ax.get_xticklabels().__len__())
-            ax.set_ylim(-1, 1)
-            plt.setp(ax.yaxis.get_majorticklabels(), fontsize=12)
-            plt.setp(ax.xaxis.get_majorticklabels(), fontsize=12)
+        if acf_all is not None:
+            for aa, ff in enumerate(range(0, ndim, 1)):
+                sbpl = "%d1%d" % (ndim, aa+1)
+                ax = fig7.add_subplot(int(sbpl))
+                ax.axhline(y=0, color='c', linestyle='--')
+                for ac in acf_all[aa]:
+                    ax.plot(ac, c='k', alpha=10./nwalkers)
+                ax.plot(np.mean(acf_all[aa], axis=0), c='r', linewidth=1)
+                ax.text(0.7, 0.8, pkeys[aa], color='r', fontsize=10, weight='bold', transform=ax.transAxes)
+                # Hide all but the bottom axis labels.
+                if aa != ndim - 1:
+                    ax.set_yticklabels(['']*ax.get_yticklabels().__len__())
+                    ax.set_xticklabels(['']*ax.get_xticklabels().__len__())
+                ax.set_ylim(-1, 1)
+                plt.setp(ax.yaxis.get_majorticklabels(), fontsize=12)
+                plt.setp(ax.xaxis.get_majorticklabels(), fontsize=12)
         fig7.suptitle("Normalized Autocorrelation Functions", fontsize=14)        
         plt.draw()
         
@@ -488,9 +480,12 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         # Custom order for corner plot.
         pkeys_tri = np.array(['inc', 'r_critical', 'r_in', 'r_out', 'scale_height',
             'disk_pa', 'debris_disk_vertical_profile_exponent', 'surface_density_exp',
-            'gamma_exp', 'dust_mass', 'amin', 'aexp', 'porosity',
+            'gamma_exp', 'dust_mass', 'amin', 'aexp', 'porosity', 'dust_vmax',
             'dust_pop_0_mass_fraction', 'dust_pop_1_mass_fraction',
             'dust_pop_2_mass_fraction'])
+        # Tack any other keys onto the end of pkeys_tri.
+        if np.any(~np.in1d(pkeys, pkeys_tri)):
+            pkeys_tri = np.append(pkeys_tri, pkeys[~np.in1d(pkeys, pkeys_tri)])
         
         # Sorting indices for keys.
         tri_sort = []
