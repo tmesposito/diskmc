@@ -174,7 +174,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     perc_3sigma_list = map(lambda v: (v[1], v[2]-v[1], v[1]-v[0]),
                              zip(*np.percentile(samples, [0.27, 50, 99.73], axis=0)))
         
-    print "\nMedian (50%) and 34% confidence intervals:"
+    print "\nMedian (50%) +/- 34% confidence intervals (84%, 16% values) ; (99.7%, 0.3%):"
     for kk, key in enumerate(pkeys[pkeys!='spl_br']):
         print key, '= %.3f +/- %.3f/%.3f  (%.3f, %.3f) ; 99.7%% (%.3f, %.3f)' % (perc_list[kk][0], perc_list[kk][1], perc_list[kk][2], perc_list[kk][0]+perc_list[kk][1], perc_list[kk][0]-perc_list[kk][2], perc_3sigma_list[kk][0]+perc_3sigma_list[kk][1], perc_3sigma_list[kk][0]-perc_3sigma_list[kk][2])
         params_medlk[key] = perc_list[kk][0]

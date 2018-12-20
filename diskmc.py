@@ -491,7 +491,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                         '\nINITIALIZATION: ', init_type,
                         '\na = %.2f' % mc_a,
                         '\nWavelength = %s microns' % str(lam),
-                        '\n'
+                        '\n',
+                        '\n|--- RESULTS FOR ALL ITERATIONS (NO BURN-IN EXCLUDED) ---|',
+                        '\n',
                         ]
     mcmc_log.writelines(log_preamble)
     mcmc_log.close()
