@@ -7,6 +7,86 @@ import matplotlib, matplotlib.pyplot as plt
 from emcee import autocorr
 
 
+class sedMcfost:
+    """
+    Object class for MCFOST SED models.
+    
+    Typical dimensions: Stokes I, Q, U, V, star only, star scattered light, thermal, scattered light from dust thermal emission
+    """
+    
+    def __init__(self, hdu, inc=slice(None), az=slice(None), fluxconv=1.):
+        """
+        hdu: HDUList from an MCFOST sed_rt.fits file.
+        inc: int index of single inclination to use. If None, retain all inclinations.
+        az: int index of single azimuth to use. If None, retain all azimuths.
+        fluxconv: flt flux conversion factor to apply.
+        """
+        
+        data = hdu[0].data
+        self.wave = hdu[1].data
+        
+        # Apply flux conversion to all components of SED.
+        self.fluxconv = fluxconv
+        self.fluxconv2 = None
+        
+        # Different formats based on MCFOST version.
+        if data.shape[0] == 5:
+            self.I = fluxconv*data[0,az,inc,:] # total intensity, star + dust
+            self.star_I = fluxconv*data[1,az,inc,:] # total intensity from star only
+            self.star_scat = fluxconv*data[2,az,inc,:] # scattered total intensity from star only
+            self.thermal = fluxconv*data[3,az,inc,:] # thermal emission from disk
+            self.dust_scat = fluxconv*data[4,az,inc,:] # scattered light from dust only
+        else:
+            self.I = fluxconv*data[0,az,inc,:] # total intensity, star + dust
+            self.Q = fluxconv*data[1,az,inc,:] # Stokes Q, star + dust
+            self.U = fluxconv*data[2,az,inc,:] # Stokes U, star + dust
+            self.V = fluxconv*data[3,az,inc,:] # Stokes V, star + dust
+            self.star_I = fluxconv*data[4,az,inc,:] # total intensity from star only
+            self.star_scat = fluxconv*data[5,az,inc,:] # scattered total intensity from star only
+            self.thermal = fluxconv*data[6,az,inc,:] # thermal emission from disk
+            self.dust_scat = fluxconv*data[7,az,inc,:] # scattered light from dust only
+        
+        return
+    
+    def merge_sed(self, data2, inc=slice(None), az=slice(None), fluxconv2=1.):
+        data2 *= fluxconv2
+        self.fluxconv2 = fluxconv2
+        
+        if data2.shape[0] == 5:
+            self.I += data2[0,az,inc,:] # total intensity, all stars + dust
+            self.star_I += data2[1,az,inc,:] # total intensity from star only
+            self.star_scat += data2[2,az,inc,:] # scattered total intensity from star only
+            self.thermal += data2[3,az,inc,:] # thermal emission from disk
+            self.dust_scat += data2[4,az,inc,:] # scattered light from dust only
+
+        else:
+            self.I += data2[0,az,inc,:] # total intensity, all stars + dust
+            self.Q += data2[1,az,inc,:] # Stokes Q, star + dust
+            self.U += data2[2,az,inc,:] # Stokes U, star + dust
+            self.V += data2[3,az,inc,:] # Stokes V, star + dust
+            self.star_I += data2[4,az,inc,:] # total intensity from star only
+            self.star_scat += data2[5,az,inc,:] # scattered total intensity from star only
+            self.thermal += data2[6,az,inc,:] # thermal emission from disk
+            self.dust_scat += data2[7,az,inc,:] # scattered light from dust only
+        
+        return
+    
+    def merge_dust_only(self, data2, inc=slice(None), az=slice(None), fluxconv2=1.):
+        data2 *= fluxconv2
+        self.fluxconv2 = fluxconv2
+        
+        if data2.shape[0] == 5:
+            self.I += data2[3,az,inc,:] + data2[4,az,inc,:] # total intensity, star + multiple disks
+            self.thermal += data2[3,az,inc,:] # thermal emission from disk
+            self.dust_scat += data2[4,az,inc,:] # scattered light from dust only
+        else:
+            self.I += data2[6,az,inc,:] + data2[7,az,inc,:] # total intensity, star + multiple disks
+            self.thermal += data2[6,az,inc,:] # thermal emission from disk
+            self.dust_scat += data2[7,az,inc,:] # scattered light from dust only
+        
+        return
+
+
 def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=1, 
                 nstop=None, add_fn=None, add_ind=0,
                 make_maxlk=False, make_medlk=False, lam=1.6,
@@ -249,9 +329,10 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     try:
         chunk_size = nstep/10 # [steps]
         N_hists = ch.shape[1]/chunk_size # number of histogram chunks per axis
-        fig_hist, ax_array_hist = axMaker(15, axRC=[3,5], axSize=[2., 2.],
-                                spEdge=[0.55, 0.6, 0.2, 0.1], spR=np.array([[0.6], [0.6]]),
-                                spC=np.array(3*[[0.1, 0.1, 0.1, 0.1]]), figNum=49)
+        nR = int(np.ceil(len(pkeys)/5.)) # number of rows in figure
+        fig_hist, ax_array_hist = axMaker(nR*5, axRC=[nR,5], axSize=[2., 2.],
+                                spEdge=[0.55, 0.6, 0.2, 0.1], spR=np.array((nR-1)*[[0.6]]),
+                                spC=np.array(nR*[[0.1, 0.1, 0.1, 0.1]]), figNum=49)
         ax_array_hist = ax_array_hist.flatten()
         hist_colors = [matplotlib.cm.viridis(jj) for jj in np.linspace(0, 0.9, N_hists)]
         for jj, pkey in enumerate(pkeys):
@@ -507,7 +588,13 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         
         labels_tri = [labels_dict[key] for key in tri_incl]
         if range_dict_tri is not None:
-            range_tri = [range_dict_tri[key] for key in tri_incl]
+            range_tri = []
+            for ii, key in enumerate(tri_incl):
+                if key in range_dict_tri.keys():
+                    range_tri.append(range_dict_tri[key])
+                else:
+                    # Default range is set to include every sample.
+                    range_tri.append(1.0)
         else:
             range_tri = None
         
@@ -743,3 +830,309 @@ def axMaker(axNum, axRC=None, axSize=[4.3,7], axDim=None, wdw=None, spR=None,
  #   #he = curPos1[3] - bo
     
     return fig1, ax_array
+
+
+def plot_sed(path_mod, path_mod2=None, scale_th=1, scale_sc=1,
+             draw=None, lam_def=False, plot_residuals=True, plot_inset=False,
+             save=None, path_model=None, figNum=10):
+    """
+    
+    Inputs:
+        
+        scale_th: multiplicative scale factor for dust thermal flux.
+        scale_sc: multiplicative scale factor for dust scattering flux.
+        lam_def: if True, use a 
+        draw:
+    """
+    
+    import glob
+    from astropy.io import fits
+    # from scipy.io import readsav
+    from scipy import interpolate
+    from scipy.stats import binned_statistic
+    from astropy import constants
+    from matplotlib.ticker import FormatStrFormatter, AutoMinorLocator
+    
+    # if s_ident is not None:
+    #     if mctype.lower()=='dust':
+    #         path_fn = glob.glob(path_model + 'models/dust_mcmc_%s/%s_dmcmc_%slk*' % (s_ident, s_ident, which))[0]
+    #     elif mctype.lower()=='sed':
+    #         path_fn = glob.glob(path_model + 'models/sed_mcmc_%s/%s_smcmc_%slk*' % (s_ident, s_ident, which))[0]
+    #     elif mctype.lower()=='morph':
+    #         path_fn = glob.glob(path_model + 'models/morph_mcmc_%s/%s_mmcmc_%slk*' % (s_ident, s_ident, which))[0]
+    #     elif mctype.lower()=='all':
+    #         path_fn = glob.glob(path_model + 'models/mcmc_%s/%s_mcmc_%slk*' % (s_ident, s_ident, which))[0]
+    #     model_sed_hdu = [fits.open(path_fn + '/data_th/sed_rt.fits.gz')]
+    # elif draw is not None:
+    #     fn_list = glob.glob(path_model + 'models/' + draw + '/*')
+    #     model_sed_hdu = [fits.open(fn + '/data_th/sed_rt.fits.gz') for fn in fn_list]
+    #     # model_sed_hdu = model_sed_hdulist[0] # just a placeholder
+    #     path_fn_mean = glob.glob(path_model + 'models/morph_mcmc_43+44/43+44_mmcmc_medlk_aexp*/')[0]
+    #     # path_fn_mean = glob.glob(path_model + 'models/morph_mcmc_24/24_mmcmc_meanlk_aexp*/')[0]
+    #     meanlk_sed_hdu = fits.open(path_fn_mean + 'data_th/sed_rt.fits.gz')
+    # else:
+    #     # model_sed_hdu = fits.open(path + "models/sed_mcmc_13/data_th/sed_rt.fits.gz")
+    #     model_sed_hdu = [fits.open(path_fn + 'sed_rt.fits.gz')]
+    
+     # Load model from file.
+    model_sed_hdu = [fits.open(glob.glob(path_mod)[0])]
+    
+    if path_mod2 is not None:
+        model_sed2_hdu = fits.open(path_mod2)
+    
+    try:
+        N_bins_mcfost = model_sed_hdu[0][0].data.shape[3]
+    except:
+        N_bins_mcfost = 500
+    
+    
+    # Start plotting data.
+    ax_left = 0.122
+    ax_width = 0.855
+    majTickLength = 6
+    minTickLength = 3
+    fontSize = 14
+    alpha_model = 1.
+    
+    if plot_residuals:
+        # fig = plt.figure(figNum, figsize=(8,5.6))
+        fig = plt.figure(figNum, figsize=(7.14,5.))
+        plt.clf()
+        ax0 = plt.axes([ax_left, 0.25, ax_width, 0.74]) # leave room for bottom axis
+    else:
+        fig = plt.figure(figNum, figsize=(8,5.))
+        plt.clf()
+        ax0 = plt.axes([ax_left, 0.11, ax_width, 0.88])
+    
+    # Draw inset.
+    if plot_inset:
+        if plot_residuals:
+            ax1 = plt.axes([0.21, 0.32, 0.24, 0.34])
+        else:
+            ax1 = plt.axes([0.21, 0.25, 0.24, 0.34])
+    
+    # For explicitly defined SED wavelengths.
+    if lam_def:
+        # model_wave = np.sort(np.concatenate((wave_irs_binned, wave_mips))) # [microns]
+        model_wave = np.sort(np.concatenate((wave_irs_binned, wave_mips, wave_sons))) # [microns]
+    # For MCFOST logarithmically-spaced SED wavelengths.
+    else:
+        # model_wave = np.logspace(np.log10(0.35), np.log10(250.), 40) # [microns]
+        # model_wave = np.logspace(np.log10(0.1), np.log10(3000.), N_bins_mcfost) # [microns]
+        model_wave = model_sed_hdu[0][1].data
+    
+    model_nu = constants.c.value/(1e-6*model_wave) # [Hz]
+    conv_WtoJy = 1.e26/model_nu
+    
+    if path_mod2 is not None:
+        model_sed2 = sedMcfost(model_sed2_hdu, inc=0, az=0, fluxconv=conv_WtoJy)
+    
+    if draw is not None:
+        meanlk_sed = sedMcfost(meanlk_sed_hdu, inc=0, az=0, fluxconv=conv_WtoJy)
+        meanlk_sed.wave = model_wave
+        # meanlk_combo_sed = meanlk_sed.I + model_sed2.I
+        meanlk_combo_sed = sedMcfost(meanlk_sed_hdu, inc=0, az=0, fluxconv=conv_WtoJy)
+        meanlk_combo_sed.merge_dust_only(conv_WtoJy*model_sed2_hdu[0].data, inc=0, az=0, fluxconv2=1.)
+        alpha_model = 2./len(model_sed_hdu)
+    
+    # Handle the model depending on case.
+    for mm in range(len(model_sed_hdu)):
+        # model_sed = model_sed_hdu[mm][0].data.copy() # [W m^-2]
+        model_sed = sedMcfost(model_sed_hdu[mm], inc=0, az=0, fluxconv=conv_WtoJy) # [W m^-2]
+        model_sed.wave = model_wave
+        # Dimensions: Stokes I, Q, U, V, star only, star scattered light, thermal, scattered light from dust thermal emission
+        
+        if path_mod2 is not None:
+            model_sed_dust_only = model_sed.thermal.copy()+model_sed.dust_scat.copy()
+            # model_sed2 = sedMcfost(model_sed2_hdu, inc=0, az=0, fluxconv=conv_WtoJy)
+            model_sed.merge_dust_only(conv_WtoJy*model_sed2_hdu[0].data, inc=0, az=0, fluxconv2=1.)
+        
+        # # Interpolated models.
+        # f_model = interpolate.interp1d(model_wave, model_spec_total)
+        # model_irs = f_model(wave_irs_binned)
+        # model_mips = f_model(wave_mips)
+        # model_combo = f_model(wave_combo)
+        model_combo = model_sed.I
+        
+        # try:
+        #     f_phot = interpolate.interp1d(model_wave, model_sed.star_I + model_sed.star_scat)
+        #     model_phot = f_phot(wave_irs_binned)
+        #     model_phot_star = f_phot(photosph_wave)
+        #     spec_irs_modelphotsub = spec_irs_binned - model_phot
+        # except:
+        #     model_phot_star = np.nan*np.ones(photosph_wave.shape)
+        #     spec_irs_modelphotsub = np.nan*np.ones(wave_irs_binned.shape)
+        
+    
+        # irs_chi2 = np.sum(((spec_irs_binned - model_irs)/spec_err_irs_binned)**2)
+        # irs_chi2_red = irs_chi2/(model_irs.shape)
+        # mips_chi2 = np.sum(((spec_mips - model_mips)/spec_err_mips)**2)
+        # mips_chi2_red = mips_chi2/(model_mips.shape)
+        # print "IRS chi2_red: %.2f" % irs_chi2_red
+        # print "MIPS chi2_red: %.2f" % mips_chi2_red
+        # chi2 = np.sum(((spec_combo - model_combo)/spec_err_combo)**2)
+        # chi2_red = chi2/(spec_combo.shape[0] - 4)
+        # print "Total chi2: %.3f" % chi2
+        # print "Total chi2_red: %.2f" % chi2_red
+        # print "Weighted chi2_reds: IRS = %.2f , MIPS = %.2f" % (irs_chi2_red/
+    
+        ax0.plot(model_wave, model_sed.I, 'k-', label='Total', alpha=alpha_model, linewidth=1., zorder=900)
+        ax0.plot(model_wave, model_sed.star_I + model_sed.star_scat, 'k--', label='Star', alpha=1./len(model_sed_hdu))
+        ax0.plot(model_wave, scale_th*model_sed.thermal + scale_sc*model_sed.dust_scat, c='#CD00ED', label='Dust', alpha=alpha_model, linewidth=1., zorder=901)
+        
+        if plot_inset:
+            # ax1.errorbar(wave_irs_binned, spec_photsub_irs_binned, yerr=spec_err_irs_binned, fmt='.', c='0.5', elinewidth=1., markersize=4, alpha=0.8, label=r'IRS$-$phot')
+            ax1.errorbar(wave_irs_binned, spec_irs_modelphotsub, yerr=spec_err_irs_binned, fmt='.', c='0.5', elinewidth=1.5, markersize=6, alpha=1.0)
+            ax1.plot(model_wave, model_sed.I, 'k-', markersize=2, alpha=alpha_model, linewidth=1., zorder=900)
+            ax1.plot(model_wave, model_sed.star_I + model_sed.star_scat, 'k--', alpha=1./len(model_sed_hdu))
+            ax1.plot(model_wave, model_sed.thermal + model_sed.dust_scat, c='#CD00ED', alpha=alpha_model, zorder=901)
+    
+    if (path_mod2 is not None) and draw:
+        # Add blank dummy lines for easy legend hack.
+        ax0.plot(model_wave, np.nan*np.ones(model_wave.shape), '#CD00ED', label='2-Comp Disk', linewidth=1.5)
+        # ax0.plot(model_wave, conv_WtoJy*(model_sed_hdu[0][0].data[6,0,0]+model_sed_hdu[0][0].data[7,0,0]), 'b:')
+        # ax0.plot(model_wave, conv_WtoJy*(model_sed2[6,0,0]+model_sed2[7,0,0]), 'c:')
+        ax0.plot(model_wave, meanlk_sed.thermal+meanlk_sed.dust_scat, 'C3-.', label='Outer Disk', linewidth=1.5)
+        ax0.plot(model_wave, model_sed2.thermal+model_sed2.dust_scat, 'c:', label='Inner Disk', linewidth=2.)
+        # Add blank dummy lines for easy legend hack.
+        ax0.plot(model_wave, np.nan*np.ones(model_wave.shape), 'k', label='Disk+Star', linewidth=1.5)
+        ax0.plot(model_wave, meanlk_combo_sed.I, 'k-', alpha=1.0, linewidth=1., zorder=901)
+    elif (path_mod2 is not None) and not draw:
+        ax0.plot(model_wave, np.nan*np.ones(model_wave.shape), '#CD00ED', label='2-Comp Disk', linewidth=1.5)
+        ax0.plot(model_wave, model_sed_dust_only, 'C3:', label='Outer Disk', linewidth=1.5)
+        ax0.plot(model_wave, model_sed2.thermal+model_sed2.dust_scat, 'c:', label='Inner Disk', linewidth=2.)
+        ax0.plot(model_wave, np.nan*np.ones(model_wave.shape), 'k', label='Disk+Star', linewidth=1.5)
+        
+    
+    # Finish cleaning up plot format.
+    ax0.set_yscale('log', nonposy='clip')
+    ax0.set_xscale('log', nonposy='clip')
+    ax0.set_ylim(0.5*np.nanmin(model_sed.I), None)
+    ax0.set_ylim(1e-4, 2.)
+    # plt.xlim(0.31, 280) # best for testing
+    ax0.set_xlim(0.4, 1000) # best for display
+    
+    # # Define tick positions and labels.
+    # majorYticklabels = np.arange(0.001, 0.9, 0.4)
+    # majorLocY = majorYticklabels/pscale + 140
+    # majorLocatorY = matplotlib.ticker.FixedLocator(majorLocY)
+    # ax0.xaxis.set_ticklabels(['', '', '1', '10', '100', ''])
+    ax0.xaxis.set_ticklabels([])
+    ax0.tick_params(axis='x', which='both', direction='in')
+    # majorLocX = majorXticklabels/pscale + 140
+    # majorLocatorX = matplotlib.ticker.FixedLocator(majorLocX)
+    
+    if not plot_residuals:
+        ax0.set_xlim(ax0.get_xlim()) # best for display
+        ax0.set_xscale('log', nonposy='clip')
+        ax0.set_xlabel("Wavelength (microns)", labelpad=2)
+    
+    ax0.set_ylabel("Flux (Jy)", labelpad=8)
+    # plt.title("Spectral Energy Distribution")
+    ax0.legend(loc=1, fontsize=fontSize-2, handlelength=1.3,
+               handletextpad=0.3, labelspacing=0.3,
+               ncol=1, columnspacing=1., borderpad=0.2)
+    # plt.legend(loc=(0.8, 0.08), fontsize=12, handletextpad=0.2)
+    
+    # ---- PLOT INSET ----
+    if plot_inset:
+        # ax1.set_yscale('log', nonposy='clip')
+        ax1.set_xscale('log', nonposy='clip')
+        ax1.set_ylim(0., 8e-2)
+        ax1.set_xlim(15, 38)
+        
+        minorLocatorX = matplotlib.ticker.FixedLocator([15, 20, 25, 30, 35])
+        ax1.xaxis.set_minor_locator(minorLocatorX)
+        # ax1.xaxis.set_minorticklabels(['20', '30', '40'])
+        ax1.tick_params(axis='both', which='both', labelsize=fontSize)
+        ax1.xaxis.set_minor_formatter(FormatStrFormatter("%d"))
+        # ax1.tick_params(axis='y', which='major', labelsize=12)
+        
+    minor_locator = AutoMinorLocator(3)
+    
+    # if len(model_combo) > 33:
+    #     model_combo = model_combo[:-2]
+    
+    if not lam_def:
+        try:
+            f_model = interpolate.interp1d(model_wave, model_combo) #model_spec_total)
+            # model_irs = f_model(wave_irs_binned)
+            # model_mips = f_model(wave_mips)
+            # model_combo = f_model(wave_combo)
+            wave_combo = np.concatenate((photosph_wave, wise_wave, wave_combo))
+            bandpass_combo = np.concatenate((bandpass_photosph, bandpass_wise, bandpass_combo))
+            spec_combo = np.concatenate((photosph, wise, spec_combo))
+            spec_err_combo = np.concatenate((photosph_err, wise_err, spec_err_combo))
+            model_combo = f_model(wave_combo)
+        except:
+            # wave_combo = np.concatenate((photosph_wave, wise_wave, wave_combo))
+            # bandpass_combo = np.concatenate((bandpass_photosph, bandpass_wise, bandpass_combo))
+            model_combo = None #np.ones(spec_combo.shape)*np.nan
+            # spec_combo = np.concatenate((photosph, wise, spec_combo))
+            # spec_err_combo = np.concatenate((photosph_err, wise_err, spec_err_combo))
+    
+    if plot_residuals:
+        # Plot residuals.
+        ax2 = plt.axes([ax_left, 0.11, ax_width, 0.14])
+        ax2.axhline(y=0., c='0.5', alpha=0.5, linestyle='--')
+        # ax2.errorbar(wave_combo, spec_combo - model_combo, yerr=spec_err_combo, c='k',
+        #              fmt='.', markersize=4)
+        ax2.errorbar(wave_combo, (spec_combo - model_combo)/spec_err_combo, yerr=None, c='k',
+                     fmt='.', markersize=4)
+        # ax2.set_ylim(-0.08, 0.055)
+        ax2.set_ylim(-5.2, 5.2)
+        ax2.set_xlim(ax0.get_xlim()) # best for display
+        ax2.set_xscale('log', nonposy='clip')
+        ax2.set_yscale('linear')
+        ax2.set_xlabel(r"Wavelength ($\mu$m)", labelpad=2)
+        ax2.set_ylabel("Residuals", labelpad=18)
+        ax2.yaxis.set_minor_locator(minor_locator)
+        ax2.yaxis.set_ticks([-3, 0, 3])
+        ax2.yaxis.set_ticklabels([r'-3$\sigma$', 0, r'3$\sigma$'])
+    
+    # Set axis tick lengths, widths, and colors
+    for ax_i in fig.get_axes():
+        ax_i.tick_params(axis='y', which='major', length=majTickLength, width=1, color='0.6', direction='in')
+        ax_i.tick_params(axis='y', which='minor', length=minTickLength, width=1, color='0.6', direction='in')
+        ax_i.tick_params(axis='x', which='major', length=majTickLength, width=1, color='0.6', direction='in')
+        ax_i.tick_params(axis='x', which='minor', length=minTickLength, width=1, color='0.6', direction='in')
+        plt.setp(ax_i.get_xticklabels(), fontsize=fontSize)
+        #plt.setp(ax.get_xminorticklabels(), fontsize=fontSize)
+        plt.setp(ax_i.get_yticklabels(), fontsize=fontSize)
+        #plt.setp(ax.get_yminorticklabels(), fontsize=fontSize)
+        # Change spine color to gray.
+        for s in ax_i.spines.values():
+            s.set_ec('0.6')
+    
+    plt.draw()
+    
+    # # Cushing G goodness-of-fit statistic (Cushing+ 2008).
+    # # Weight each point by its spectral width in microns (Cushing+ 2008).
+    # weights = (bandpass_combo/wave_combo)/(np.sum(bandpass_combo/wave_combo))
+    # # # Weight each point by its log space spectral width (Naud+ 2014, Gagne+ 2015).
+    # # weights = (ln_delta_wave_combo/wave_combo)/np.sum(ln_delta_wave_combo/wave_combo)
+    # C = np.sum(weights*spec_combo*model_combo/spec_err_combo**2)/np.sum(weights*model_combo**2/spec_err_combo**2)
+    # G = np.sum(weights*((spec_combo - C*model_combo)/spec_err_combo)**2)
+    # print "Cushing G: %.3f" % G
+    # print "exp(-0.5*G): %.3e" % np.exp(-0.5*G)
+    # # print "-ln(1+G): %.3e" % (-np.log(1+G))
+    # 
+    # # Photosphere fit.
+    # weights_phot = (bandpass_photosph/photosph_wave)/(np.sum(bandpass_photosph/photosph_wave))
+    # C_phot = np.sum(weights_phot*photosph*model_phot_star/photosph_err**2)/np.sum(weights_phot*model_phot_star**2/photosph_err**2)
+    # G_phot = np.sum(weights_phot*((photosph - C_phot*model_phot_star)/photosph_err)**2)
+    # 
+    # print "Photosphere Cushing G: %.3f" % G_phot
+    # print "Photosphere exp(-0.5*G): %.3e" % np.exp(-0.5*G_phot)
+    
+    
+    if save is not None:
+        if s_ident is not None:
+            fig.savefig(path_fn + '/../plots/%s.pdf' % save, dpi=300, transparent=True, format='pdf')
+            # fig.savefig(d_mcmc_%s/plots/%s' % (s_ident, save)) + '.pdf', dpi=300, transparent=True, format='pdf')
+        else:
+            fig.savefig(os.path.expanduser('~/Research/hd35841/hd35841_sed_%s' % save) + '.pdf', dpi=300, transparent=True, format='pdf')
+    
+    # pdb.set_trace()
+    
+    return
