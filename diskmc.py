@@ -1,10 +1,13 @@
 #!/usr/bin/env python
+"""
+Main functions for the DiskMC package to run an MCMC using MCFOST to create
+disk models.
+"""
 
 __author__ = 'Tom Esposito'
 __copyright__ = 'Copyright 2018, Tom Esposito'
 __credits__ = ['Tom Esposito']
 __license__ = 'GNU General Public License v3'
-__version__ = '0.1.0'
 __maintainer__ = 'Tom Esposito'
 __email__ = 'espos13@gmail.com'
 __status__ = 'Development'
@@ -31,7 +34,10 @@ from emcee import PTSampler, EnsembleSampler
 #from emcee.utils import MPIPool
 #from mpi4py import MPI
 
-from diskmc_tools import get_ann_stdmap, make_radii, get_radial_stokes
+if sys.version_info.major >= 3:
+    from diskmc.diskmc_tools import get_ann_stdmap, make_radii, get_radial_stokes
+else:
+    from diskmc_tools import get_ann_stdmap, make_radii, get_radial_stokes
 #import pyklip.instruments.GPI as GPI
 #from pyklip import parallelized, klip, fm
 #from pyklip.fmlib import diskfm
@@ -160,18 +166,38 @@ def mc_lnprior(pl, pkeys, priors):
     return 0.
 
 
-def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam=1.6):
+def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
+                scatlight=True, sed=False, lam=1.6):
     """
-    Make an MCFOST model by writing a .para file and calling MCFOST.
+    Make an MCFOST model by writing a .para parameter file and passing it to MCFOST.
+    This function requires an initial .para file that will be copied and updated
+    with the user's desired parameter values to make a new model. This function fails
+    silently (by design) if MCFOST model creation is unsuccessful.
+    
+    OVERWRITE WARNING! Any existing directory at the new model's location,
+        e.g., model_path/fnstring, will be SILENTLY OVERWRITTEN! Period.
     
     Inputs:
-        pl_dict: 
-            ...
+        pkeys: array of str names for each model parameter being edited in the *.para
+            parameter file. Names MUST match those used in mcfost.paramfiles.Paramfile
+            (from the mcfost-python package) and the keys in pl_dict.
+        pl_dict: dict of parameter name and value pairs to be used in the new model.
+        parfile: str path to a (*.para) MCFOST parameter file that will be used
+            as a basis for the new model's parameter file. Any parameters not
+            included in pl_dict will remain unchanged.
+        model_path: str path to parent directory for new model.
+        s_ident: str identifier for the new model. Only used here to name models
+            in the fashion "[s_ident]_mcmc_..." if fnstring is None.
+        fnstring: str name for the new model. If None, a generic name will be assigned
+            using s_ident and the first parameter's name and value from pl_dict.
+        scatlight: bool, True to make a scattered-light model at wavelength lam (default).
+        sed: bool, True to make an SED model from the new .para file.
+        lam: float wavelength [microns] at which to compute the MCFOST scattered-light model.
     
     Outputs:
-        Technically nothing, but writes MCFOST models to disk.
+        Technically nothing, but writes MCFOST .para parameter files and models to disk.
     """
-        
+    
     # Create a new MCFOST .para file object.
     par = Paramfile(parfile)
     
@@ -188,8 +214,8 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam
             pkey_split = pkey[9:].split('_')
             pop_num = int(pkey_split[0])
             dust_key = "_".join(pkey_split[1:])
- # FIX ME!!! Only indexes correctly for 1 density zone right now. Would need to loop
- # over the [0] index here to go through multiples density zones.
+# FIX ME!!! Only indexes correctly for 1 density zone right now. Would need to loop
+# over the [0] index here to go through multiples density zones.
             par.density_zones[0]['dust'][pop_num][dust_key] = pl_dict[pkey]
         # Must loop over all dust populations for some dust parameters.
         elif pkey in ['amax', 'aexp', 'ngrains', 'porosity']:
@@ -209,16 +235,15 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam
             par.set_parameter(pkey, pl_dict[pkey])
     
     if fnstring is None:
-        fnstring = "%s_mcmc_%s%.5e" % \
-                   (s_ident, pkeys[0], pl_dict[pkeys[0]])
+        fnstring = "%s_mcmc_%s%.5e" % (s_ident, pkeys[0], pl_dict[pkeys[0]])
     
     modeldir = model_path + fnstring
     try:
         os.mkdir(modeldir)
     except OSError:
-        time.sleep(0.5) # short pause
 # FIX ME!!! This rmtree will cause an OSError if the directory doesn't exist.
 # Need a better solution than this try/except block.
+        time.sleep(0.5) # short pause
         rmtree(modeldir) # delete any existing directory
         time.sleep(0.5) # pause after removing directory to make sure completes
         os.mkdir(modeldir) # try to make directory again
@@ -234,8 +259,14 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring=None, lam
     try:
         # Run MCFOST to create the given model.
         # Re-direct terminal output to a .txt file.
- # FIX ME!!! Specific to scattered-light only.
-        subprocess.call('mcfost '+fnstring+'.para -img '+str(lam)+' -rt2 -only_scatt >> imagemcfostout.txt', shell=True)        
+# FIX ME!!! Specific to scattered-light only.
+        if sed:
+            subprocess.call('mcfost '+fnstring+'.para >> sedmcfostout.txt', shell=True)
+        if scatlight:
+            subprocess.call('mcfost '+fnstring+'.para -img '+str(lam)+' -rt2 -only_scatt >> imagemcfostout.txt', shell=True)
+        if not scatlight and not sed:
+            print("No model created: neither 'scatlight' nor 'sed' flags set to True.")
+            pass
     except:
         pass
     
