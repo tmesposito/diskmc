@@ -338,6 +338,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         for jj, pkey in enumerate(pkeys):
             ax = ax_array_hist[jj]
             priors = prior_dict_tri[pkey]
+            chunk_meds = []
             max_ind = chunk_size - 1
             hist_ind = 0
             while max_ind <= ch.shape[1]:
@@ -348,6 +349,14 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                         rwidth=0.9, label=str(max_ind + 1))
                 max_ind += chunk_size
                 hist_ind += 1
+                # Calculate median of every ~4th chunk.
+                if hist_ind in range(N_hists + 1 - (3*N_hists/4), N_hists+1, N_hists/4):
+                    chunk_meds.append(np.median(chunk))
+            # Print fractional change of every ~4th chunk from previous 4th chunk.
+            if jj == 0:
+                ax.text(0.97, 0.99, '$\Delta$median by quarter', horizontalalignment='right', verticalalignment='top', transform=ax.transAxes, fontsize=8, )
+            for kk in range(0,len(chunk_meds)-1):
+                ax.text(0.97, 0.85-kk*0.1, '%.3f%%' % (100*(chunk_meds[kk+1]-chunk_meds[kk])/float(chunk_meds[kk])), horizontalalignment='right', transform=ax.transAxes, fontsize=8, )
             ax.set_xlabel(pkey, fontsize=10)
             ax.set_ylim(0, nwalkers*1.01)
             ax.tick_params('both', direction='in', labelsize=14)

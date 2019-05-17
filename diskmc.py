@@ -167,7 +167,7 @@ def mc_lnprior(pl, pkeys, priors):
 
 
 def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
-                scatlight=True, sed=False, lam=1.6):
+                scatlight=True, sed=False, lam=1.6, dustprops=False):
     """
     Make an MCFOST model by writing a .para parameter file and passing it to MCFOST.
     This function requires an initial .para file that will be copied and updated
@@ -193,6 +193,7 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
         scatlight: bool, True to make a scattered-light model at wavelength lam (default).
         sed: bool, True to make an SED model from the new .para file.
         lam: float wavelength [microns] at which to compute the MCFOST scattered-light model.
+        dustprops: bool, True to output the dust properties like phase function.
     
     Outputs:
         Technically nothing, but writes MCFOST .para parameter files and models to disk.
@@ -264,8 +265,10 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
             subprocess.call('mcfost '+fnstring+'.para >> sedmcfostout.txt', shell=True)
         if scatlight:
             subprocess.call('mcfost '+fnstring+'.para -img '+str(lam)+' -rt2 -only_scatt >> imagemcfostout.txt', shell=True)
-        if not scatlight and not sed:
-            print("No model created: neither 'scatlight' nor 'sed' flags set to True.")
+        if dustprops:
+            subprocess.call('mcfost '+fnstring+'.para -dust_prop -op '+str(lam)+' >> dustmcfostout.txt', shell=True)
+        if not scatlight and not sed and not dustprops:
+            print("No model created: neither 'scatlight', 'sed', nor 'dustprops' flags set to True.")
             pass
     except:
         pass
@@ -532,7 +535,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     # Create emcee sampler instances: parallel-tempered or ensemble.
     if partemp:
         # Pass data_I, uncertainty_I, and parfile as arguments to emcee sampler.
-        sampler = PTSampler(ntemps, nwalkers, ndim, mc_lnlike, mc_lnprior,
+        sampler = PTSampler(ntemps, nwalkers, ndim, mc_lnlike, mc_lnprior, a=mc_a,
                       loglargs=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
                         phi_stokes, mcmod.parfile, model_path, unit_conv, mcmod.priors,
                         lam, partemp, ndim, write_model, s_ident],
@@ -544,7 +547,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         sampler.__dict__['pkeys_all'] = pkeys_all
         
     else:
-        sampler = EnsembleSampler(nwalkers, ndim, mc_lnlike,
+        sampler = EnsembleSampler(nwalkers, ndim, mc_lnlike, a=mc_a,
                       args=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
                         phi_stokes, mcmod.parfile, model_path, unit_conv, mcmod.priors,
                         lam, partemp, ndim, write_model, s_ident],
