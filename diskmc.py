@@ -167,7 +167,7 @@ def mc_lnprior(pl, pkeys, priors):
 
 
 def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
-                scatlight=True, sed=False, lam=1.6, dustprops=False):
+                lam=1.6, scatlight=True, sed=False, dustprops=False):
     """
     Make an MCFOST model by writing a .para parameter file and passing it to MCFOST.
     This function requires an initial .para file that will be copied and updated
@@ -190,9 +190,10 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
             in the fashion "[s_ident]_mcmc_..." if fnstring is None.
         fnstring: str name for the new model. If None, a generic name will be assigned
             using s_ident and the first parameter's name and value from pl_dict.
+        lam: float wavelength [microns] at which to compute the MCFOST
+             scattered-light model.
         scatlight: bool, True to make a scattered-light model at wavelength lam (default).
         sed: bool, True to make an SED model from the new .para file.
-        lam: float wavelength [microns] at which to compute the MCFOST scattered-light model.
         dustprops: bool, True to output the dust properties like phase function.
     
     Outputs:
@@ -361,7 +362,8 @@ def mc_lnlike(pl, pkeys, data, uncerts, data_types, mod_bin_factor, phi_stokes,
     # Write the MCFOST .para file and create the model.
     # try/except here works around some unsolved directory creation/deletion issues.
     try:
-        make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring, lam)
+        make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring,
+                    lam=lam, scatlight=True)
     except:
         return -np.inf
     
@@ -783,7 +785,8 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                        (s_ident, mod_idents[mm], pkeys_all[0], pl_dict[pkeys_all[0]])
         
         # Make the MCFOST model.
-        make_mcfmod(pkeys_all, pl_dict, mcmod.parfile, model_path, s_ident, fnstring, lam)
+        make_mcfmod(pkeys_all, pl_dict, mcmod.parfile, model_path, s_ident,
+                    fnstring, lam=lam, scatlight=True)
         
         # Calculate Chi2 for images.
         chi2s = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
