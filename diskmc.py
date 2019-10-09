@@ -544,10 +544,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                       logpargs=[pkeys_all, mcmod.priors],
                         threads=nthreads)
                       #pool=pool)
-        
-        # Insert pkeys into the sampler dict for later use.
-        sampler.__dict__['pkeys_all'] = pkeys_all
-        
+    
     else:
         sampler = EnsembleSampler(nwalkers, ndim, mc_lnlike, a=mc_a,
                       args=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
@@ -555,6 +552,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                         lam, partemp, ndim, write_model, s_ident],
                       # logpargs=[pkeys_all],
                         threads=nthreads)
+    
+    # Insert pkeys into the sampler dict for later use.
+    sampler.__dict__['pkeys_all'] = pkeys_all
 
 
     ###############################
@@ -653,11 +653,18 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                 try:
                     # Delete some items from the sampler that don't hickle well.
                     sampler_dict = sampler.__dict__.copy()
-                    for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
-                        try:
-                            sampler_dict.__delitem__(item)
-                        except:
-                            continue
+                    if partemp:
+                        for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
+                            try:
+                                sampler_dict.__delitem__(item)
+                            except:
+                                continue
+                    else:
+                        for item in ['pool', 'lnprobfn', 'runtime_sortingfn', '_random', 'kwargs']:
+                            try:
+                                sampler_dict.__delitem__(item)
+                            except: #KeyError
+                                continue
                     hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w')
                     print("Sampler logged at iteration %d." % nn)
                 except:
@@ -678,11 +685,18 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         # Delete some items from the sampler that don't hickle well
         # and are not typically useful later.
         sampler_dict = sampler.__dict__.copy()
-        for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
-            try:
-                sampler_dict.__delitem__(item)
-            except:
-                continue
+        if partemp:
+            for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
+                try:
+                    sampler_dict.__delitem__(item)
+                except: #KeyError
+                    continue
+        else:
+            for item in ['pool', 'lnprobfn', 'runtime_sortingfn', '_random', 'kwargs']:
+                try:
+                    sampler_dict.__delitem__(item)
+                except: #KeyError
+                    continue
         hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
         print("Full sampler (all temps) logged as " + log_path + '%s_mcmc_full_sampler.hkl' % s_ident)
     except:
@@ -690,7 +704,6 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         print("FAILED to log full sampler!! Trying to save the chains...")
         hickle.dump(sampler.chain, log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=7)
         print("MCMC full chain (all temps) logged as " + log_path + '%s_mcmc_full_chain...' % s_ident)
-    
     
     # Chain has shape (ntemps, nwalkers, nsteps/nthin, ndim).
     if partemp:

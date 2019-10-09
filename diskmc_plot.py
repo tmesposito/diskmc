@@ -153,24 +153,46 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
             ch = ch[ntemp_view]
             beta = betas[ntemp_view]
             lnprob = sampler['_lnprob'][ntemp_view]/beta # log probability; dim=[nwalkers, nsteps]
-            print "Analyzing temperature=%d chain only, as specified." % ntemp_view
+            print("\nAnalyzing temperature=%d chain only (beta=%.1f), as specified." % (ntemp_view, beta))
         else:
             ch = ch[0]
             beta = betas[0]
             lnprob = sampler['_lnprob']/beta
-            print "Analyzing temperature=0 chain only, because ntemp_view=None."
+            print("\nAnalyzing temperature=0 chain only (beta=%.1f), because ntemp_view=None." % beta)
+        print("Temperature ladder (1/beta, increasing):")
+        print(1/betas)
+        # Higher temperatures flatten the posterior such that the effective width
+        # of the likelihood function (if Gaussian) is sigma_T = sqrt(T)*sigma,
+        # where sigma is the width of the true likelihood function.
+        print("Effective sigma of Gaussian likelihood (times true sigma, increasing):")
+        print((1/betas)**0.5)
     else:
+# TEMP!!! TESTING
         try:
-            sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
+           sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
+        
+        # IOError
+        # RuntimeError
         except:
             print("FAILED to load sampler from log. Check s_ident and path and try again.")
             return
+        ntemp_view = 0
         ch = sampler['_chain']
         beta = 1.
         lnprob = sampler['_lnprob']/beta
         nwalkers = ch.shape[0]
         nstep = ch.shape[1]
         ndim = ch.shape[2]
+        
+    # Print intra-chain acceptance fraction and temperature swap fraction.
+    # NOTE: not affected by nburn, nthin, or nstop.
+    if partemp:
+        intra_accept_frac = sampler['nprop_accepted']/sampler['nprop']
+        print("\nIntra-chain acceptance fraction averages by (increasing) temperature:")
+        print(np.mean(intra_accept_frac, axis=1))
+        temp_swap_frac = sampler['nswap_accepted']/sampler['nswap']
+        print("Inter-temperature swap fractions by (increasing) temperature:")
+        print(temp_swap_frac)
     
     # Autocorrelation function.
     try:
@@ -185,6 +207,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     except:
         acf_all = None
         print("Failed to calculate autocorrelation functions. Chain may be too short.")
+
     
     # # Optionally load a second sampler and add it to the main one.
     if add_fn is not None:
@@ -242,7 +265,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     params_maxlk = {}
     params_medlk = {}
     
-    print "\nMax Likelihood = %.3f  (chain %d, step %d) and param values:" % (lk_max, ind_lk_max[0][0], ind_lk_max[1][0])
+    print "\nMax ln(Probability) = %.3e  (chain %d, step %d) and param values:" % (lnprob.max(), ind_lk_max[0][0], ind_lk_max[1][0])
     for kk, key in enumerate(pkeys[pkeys!='spl_br']):
         print key, '= %.3f' % ch[ind_lk_max[0], ind_lk_max[1], kk]
         params_maxlk[key] = ch[ind_lk_max[0], ind_lk_max[1], kk][0]
@@ -387,7 +410,8 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
             # if nburn > 0:
             #     ax.axvspan(0, nburn, facecolor='lightgray', zorder=0, edgecolor='None')
             # ax.set_ylabel(r'%.12s (d %d)' % (pkeys[ff], ff))
-            ax.set_ylabel(r'%s (%d)' % (labels_dict[pkeys[ff]], ff), fontsize=fontSize+2)
+            if pkeys[ff] != 'None':
+                ax.set_ylabel(r'%s (%d)' % (labels_dict[pkeys[ff]], ff), fontsize=fontSize+2)
             if aa%2==1:
                 ax.yaxis.tick_right()
                 ax.yaxis.set_label_position('right')
@@ -415,7 +439,8 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                 # if nburn > 0:
                 #     ax.axvspan(0, nburn, facecolor='lightgray', zorder=0, edgecolor='None')
                 # ax.set_ylabel(r'%s (d %d)' % (pkeys[ff], ff))
-                ax.set_ylabel(r'%s (%d)' % (labels_dict[pkeys[ff]], ff), fontsize=fontSize+2) 
+                if pkeys[ff] != 'None':
+                    ax.set_ylabel(r'%s (%d)' % (labels_dict[pkeys[ff]], ff), fontsize=fontSize+2) 
                 if aa%2==1:
                     ax.yaxis.tick_right()
                     ax.yaxis.set_label_position('right')
@@ -441,7 +466,8 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                 # if nburn > 0:
                 #     ax.axvspan(0, nburn, facecolor='lightgray', zorder=0, edgecolor='None')
                 # ax.set_ylabel(r'%s (d %d)' % (pkeys[ff], ff))
-                ax.set_ylabel(r'%s (%d)' % (labels_dict[pkeys[ff]], ff), fontsize=fontSize+2) 
+                if pkeys[ff] != 'None':
+                    ax.set_ylabel(r'%s (%d)' % (labels_dict[pkeys[ff]], ff), fontsize=fontSize+2) 
                 if aa%2==1:
                     ax.yaxis.tick_right()
                     ax.yaxis.set_label_position('right')
@@ -690,7 +716,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     # figsave = plt.figure(##)
     # figsave.savefig(path + '##_mmcmc_corner.png', dpi=300, format='png')
     
-    pdb.set_trace()
+    # pdb.set_trace()
     
     return
 
