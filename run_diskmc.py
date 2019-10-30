@@ -100,6 +100,8 @@ nu = constants.c.value/(1e-6*lam) # [Hz]
 conv_WtoJy = (1e3/pscale**2)*1.e26/nu # [(mJy arcsec^-2) / (W m^-2)]
 
 # Option to spatially bin data and models by some factor.
+# Typically, this factor should be chosen such that one resolution element
+# is transformed into one pixel in the binned image.
 bin_factor = 2.
 
 
@@ -108,16 +110,17 @@ bin_factor = 2.
 # CUSTOMIZE this section to your data.
 
 # Load radial Stokes Q data from FITS file.
-data_Qr = fits.getdata(os.path.expanduser('~/Desktop/test_dir/S20160318S0049_podc_radialstokesdc_sm2_perfwv_flex.01.01_smpol10_stpol2-11_mJy_arcsec-2.fits'))[1]
-# Load a mask that focuses on disk only (excludes outer noise areas).
-noise_mask = fits.getdata(os.path.expanduser('~/Desktop/test_dir/disk_mask-281x281_x140y140_tight.fits'))
-noise_mask[noise_mask==1] = np.nan
+data_rstokes = fits.getdata(os.path.expanduser('~/path/to/data/example_gpi_rstokes_datacube.fits'))
+data_Qr = data_rstokes[1] # radial Stokes Q channel
+data_Ur = data_rstokes[2] # radial Stokes U channel
 
 # Array of radial distances from star in data_Qr.
 radii = make_radii(data_Qr, star)
 
-# Calculate noise map for data_Qr.
-uncertainty_Qr = get_ann_stdmap(data_Qr+noise_mask, star, radii, r_max=135)
+# Calculate noise map for data_Qr from the Ur channel.
+# This assumes an optically thin disk in which only single scattering
+# events occur. As such, Ur should contain only noise equivalent to the noise in Qr.
+uncertainty_Qr = get_ann_stdmap(data_Ur, star, radii, r_max=135)
 uncertainty_Qr[uncertainty_Qr==0] = np.nan
 
 # Make mask for data-model comparison, excluding large empty regions and edges.
@@ -129,7 +132,7 @@ data_Qr_masked = np.ma.masked_array(data_Qr, mask_fit)
 
 
 # Create a handy MCData object to hold all data and associated variables.
-data_info = MCData([data_Qr_masked], [star], [uncertainty_Qr], [bin_factor],
+data_info = MCData([data_Qr_masked], ['Qr'], [star], [uncertainty_Qr], [bin_factor],
                     [(hw_y, hw_x, r_fit)], s_ident)
 
 
@@ -210,8 +213,9 @@ mod_info = MCMod(plims_lib.keys(), parfile, pmeans_lib, psigmas_lib, plims_lib, 
 # |----- RUN THE MCMC -----| #
 if __name__=='__main__':
     mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
-            mcdata=data_info, mcmod=mod_info, partemp=partemp, mc_a=mc_a, init_samples_fn=init_samples_fn,
-            write_model=write_model, plot=False, save=False)
+            mcdata=data_info, mcmod=mod_info, partemp=partemp, mc_a=mc_a,
+            init_samples_fn=init_samples_fn, write_model=write_model, plot=False,
+            save=False)
 
 
 # print("run_diskmc.py script finished\n")
