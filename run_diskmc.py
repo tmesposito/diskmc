@@ -3,7 +3,10 @@
 import os
 import argparse
 import warnings
-import pdb
+try:
+    import ipdb as pdb
+except:
+    import pdb
 #import time, datetime as dt
 import gzip
 import numpy as np
@@ -50,6 +53,12 @@ if ntemps > 1:
     partemp = True
 else:
     partemp = False
+
+# Set type of models to create.
+scatlight = True
+fullimg = False
+sed = False
+dustprops = False
 
 
 # |----- PATHS -----| #
@@ -207,7 +216,8 @@ priors = dict(aexp=(2.0, 6.5), amin=(-1.0, 1.6),
 
 # Create a handy MCMod instance to hold basic model info.
 mod_info = MCMod(plims_lib.keys(), parfile, pmeans_lib, psigmas_lib, plims_lib, priors,
-                  lam, conv_WtoJy, mod_bin_factor, model_path, log_path, s_ident)
+                scatlight, fullimg, sed, dustprops,
+                lam, conv_WtoJy, mod_bin_factor, model_path, log_path, s_ident)
 
 
 # |----- RUN THE MCMC -----| #

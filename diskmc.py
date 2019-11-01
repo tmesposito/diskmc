@@ -15,7 +15,10 @@ __status__ = 'Development'
 import os, sys, argparse, warnings
 import subprocess 
 from shutil import rmtree
-import pdb
+try:
+    import ipdb as pdb
+except:
+    import pdb
 import time, datetime as dt
 import glob
 import hickle
@@ -91,7 +94,8 @@ class MCMod:
     """
     
     def __init__(self, pkeys, parfile, pmeans_lib=None, psigmas_lib=None,
-                 plims_lib=None, priors=None, lam=1., unit_conv=1.,
+                 plims_lib=None, priors=None, scatlight=True, fullimg=False,
+                 sed=False, dustprops=False, lam=1., unit_conv=1.,
                  mod_bin_factor=None, model_path='.', log_path='.', s_ident='no_ident'):
         """
         Initialization code for MCMod.
@@ -109,6 +113,12 @@ class MCMod:
                 if using a uniform walker initialization. See run_diskmc.py for details.
             priors: dict of flat prior lower and upper bounds (exclusive).
                 See run_diskmc.py for details.
+            scatlight: bool, True to make a scattered-light-only model at wavelength lam (default).
+            fullimg: bool, True to compute the temperature profile, SED, and an image
+                at wavelength lam that combines thermal and scattered-light emission.
+            sed: bool, True to make an SED model from the new .para file.
+                Ignored if fullimg==True.
+            dustprops: bool, True to output the dust properties like phase function.
             lam: single wavelength at which to create the MCFOST models [microns]
             unit_conv: multiplicative conversion factor to convert MCFOST models
                 into whatever unit is desired for the likelihood function.
@@ -126,6 +136,10 @@ class MCMod:
         self.psigmas_lib = psigmas_lib
         self.plims_lib = plims_lib
         self.priors = priors
+        self.scatlight = scatlight
+        self.fullimg = fullimg
+        self.sed = sed
+        self.dustprops = dustprops
         self.lam = lam
         self.unit_conv = unit_conv
         self.mod_bin_factor = mod_bin_factor
@@ -167,7 +181,7 @@ def mc_lnprior(pl, pkeys, priors):
 
 
 def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
-                lam=1.6, scatlight=True, sed=False, dustprops=False):
+                lam=1.6, scatlight=True, fullimg=False, sed=False, dustprops=False):
     """
     Make an MCFOST model by writing a .para parameter file and passing it to MCFOST.
     This function requires an initial .para file that will be copied and updated
@@ -192,8 +206,11 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
             using s_ident and the first parameter's name and value from pl_dict.
         lam: float wavelength [microns] at which to compute the MCFOST
              scattered-light model.
-        scatlight: bool, True to make a scattered-light model at wavelength lam (default).
+        scatlight: bool, True to make a scattered-light-only model at wavelength lam (default).
+        fullimg: bool, True to compute the temperature profile, SED, and an image
+            at wavelength lam that combines thermal and scattered-light emission.
         sed: bool, True to make an SED model from the new .para file.
+            Ignored if fullimg==True.
         dustprops: bool, True to output the dust properties like phase function.
     
     Outputs:
@@ -261,15 +278,17 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
     try:
         # Run MCFOST to create the given model.
         # Re-direct terminal output to a .txt file.
-# FIX ME!!! Specific to scattered-light only.
-        if sed:
+        if fullimg:
+            subprocess.call('mcfost '+fnstring+'.para >> mcfostout.txt', shell=True)
+            subprocess.call('mcfost '+fnstring+'.para -img '+str(lam)+' >> imagemcfostout.txt', shell=True)
+        if sed and not fullimg:
             subprocess.call('mcfost '+fnstring+'.para >> sedmcfostout.txt', shell=True)
         if scatlight:
-            subprocess.call('mcfost '+fnstring+'.para -img '+str(lam)+' -rt2 -only_scatt >> imagemcfostout.txt', shell=True)
+            subprocess.call('mcfost '+fnstring+'.para -img '+str(lam)+' -rt2 -only_scatt >> SLimagemcfostout.txt', shell=True)
         if dustprops:
             subprocess.call('mcfost '+fnstring+'.para -dust_prop -op '+str(lam)+' >> dustmcfostout.txt', shell=True)
-        if not scatlight and not sed and not dustprops:
-            print("No model created: neither 'scatlight', 'sed', nor 'dustprops' flags set to True.")
+        if not (fullimg or scatlight or sed or dustprops):
+            print("No model created: neither 'fullimg', 'scatlight', 'sed', nor 'dustprops' flags set to True.")
             pass
     except:
         pass
@@ -298,22 +317,25 @@ def chi2_morph(path, data, uncerts, data_types, mod_bin_factor,
         chi2s = []
         
         for ii, dt in enumerate(data_types):
-            if dt == 'Qr':
-                mod_use, model_Ur = get_radial_stokes(model[1,0,0,:,:], model[2,0,0,:,:], phi_stokes) # [W/m^2...]
-            elif dt == 'I':
-                mod_use = model[0,0,0,:,:]
-                
- # FIX ME!!! Total intensity forward modeling is currently disabled.
+            # Total intensity; includes thermal + scattered-light images.
+            if dt == 'I':
+                mod_use = model[0,0,0,:,:]  # [W/m^2...]
+ # FIX ME!!! Total intensity ADI forward modeling is currently disabled.
                 # if algo=='loci':
                 #     mod_use = do_fm_loci(dataset, mod_use.copy(), c_list)
                 # elif algo=='pyklip':
                 #     # Forward model to match the KLIP'd data.
                 #     mod_use = do_fm_pyklip(modfm, dataset, model_I.copy())
             
+            # Radial Stokes Q polarized intensity (i.e., Q_phi or Qr).
+            elif dt == 'Qr':
+                mod_use, model_Ur = get_radial_stokes(model[1,0,0,:,:], model[2,0,0,:,:], phi_stokes) # [W/m^2...]
+            # Stokes Q polarized intensity.
             elif dt == 'Q':
-                mod_use = model[1,0,0,:,:]
+                mod_use = model[1,0,0,:,:] # [W/m^2...]
+            # Stokes U polarized intensity.
             elif dt == 'U':
-                mod_use = model[2,0,0,:,:]
+                mod_use = model[2,0,0,:,:] # [W/m^2...]
             
             # Convert units of model according to unit_conv.
             mod_use *= unit_conv # [converted brightness units]
@@ -332,7 +354,7 @@ def chi2_morph(path, data, uncerts, data_types, mod_bin_factor,
 
 
 def mc_lnlike(pl, pkeys, data, uncerts, data_types, mod_bin_factor, phi_stokes,
-             parfile, model_path, unit_conv, priors,
+             parfile, model_path, unit_conv, priors, scatlight, fullimg, sed, dustprops,
              lam, partemp, ndim, write_model, s_ident):
     """
     Computes and returns the natural log of the likelihood value
@@ -363,7 +385,7 @@ def mc_lnlike(pl, pkeys, data, uncerts, data_types, mod_bin_factor, phi_stokes,
     # try/except here works around some unsolved directory creation/deletion issues.
     try:
         make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident, fnstring,
-                    lam=lam, scatlight=True)
+                    lam=lam, scatlight=scatlight, fullimg=fullimg)
     except:
         return -np.inf
     
@@ -540,6 +562,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         sampler = PTSampler(ntemps, nwalkers, ndim, mc_lnlike, mc_lnprior, a=mc_a,
                       loglargs=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
                         phi_stokes, mcmod.parfile, model_path, unit_conv, mcmod.priors,
+                        mcmod.scatlight, mcmod.fullimg, mcmod.sed, mcmod.dustprops,
                         lam, partemp, ndim, write_model, s_ident],
                       logpargs=[pkeys_all, mcmod.priors],
                         threads=nthreads)
@@ -549,8 +572,8 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         sampler = EnsembleSampler(nwalkers, ndim, mc_lnlike, a=mc_a,
                       args=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
                         phi_stokes, mcmod.parfile, model_path, unit_conv, mcmod.priors,
+                        mcmod.scatlight, mcmod.fullimg, mcmod.sed, mcmod.dustprops,
                         lam, partemp, ndim, write_model, s_ident],
-                      # logpargs=[pkeys_all],
                         threads=nthreads)
     
     # Insert pkeys into the sampler dict for later use.
@@ -779,7 +802,6 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     
     
     # Construct max- and med-likelihood models.
-    # try:
     print("\nConstructing 'best-fit' models...")
     mod_idents = ['maxlk', 'medlk']
     params_50th_mcmc = np.array(params_med_mcmc)[:,0]
@@ -799,7 +821,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         
         # Make the MCFOST model.
         make_mcfmod(pkeys_all, pl_dict, mcmod.parfile, model_path, s_ident,
-                    fnstring, lam=lam, scatlight=True)
+                    fnstring, lam=lam, scatlight=mcmod.scatlight, fullimg=mcmod.fullimg)
         
         # Calculate Chi2 for images.
         chi2s = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
@@ -823,7 +845,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         mcmc_log.writelines('\n\n%s total chi2_red: %.3e' % (lk_type, chi2_red_total))
         mcmc_log.writelines("\nindividual chi2_red's: " + len(chi2_reds)*"%.3e | " % tuple(chi2_reds))
         
-        # Make scattered-light and dust properties models for maxlk and medlk.
+        # Make image, sed, and/or dust properties models for maxlk and medlk.
         try:
             os.chdir(model_path + fnstring)
             # Make the dust properties at proper wavelength.
@@ -831,18 +853,17 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             # wavelength, otherwise MCFOST automatically deletes the image directory!
             subprocess.call('rm -rf data_'+str(lam), shell=True)
             subprocess.call('mcfost '+fnstring+'.para -dust_prop -op %s >> dustmcfostout.txt' % lam, shell=True)
-            time.sleep(2)
-            # # Delete the (mostly) empty data_1.647 directory after dust_prop step.
+            time.sleep(1)
+            # # Delete the (mostly) empty data_[lam] directory after dust_prop step.
             # subprocess.call('rm -rf data_'+str(lam), shell=True)
             # Make the SED model.
             subprocess.call('mcfost '+fnstring+'.para -rt >> sedmcfostout.txt', shell=True)
-            # Make the scattered-light models at proper wavelengths and PA.
+            # Make the image models (thermal + scattered-light) at demanded wavelength.
             subprocess.call('mcfost '+fnstring+'.para -img '+str(lam)+' -rt2 >> imagemcfostout.txt', shell=True)
-            # time.sleep(2)
-            time.sleep(2)
-            print("Saved scattered-light and dust properties models.")
+            time.sleep(1)
+            print("Saved image and dust properties models.")
         except:
-            print("Failed to save scattered-light and dust properties models.")
+            print("Failed to save image and dust properties models.")
     
     # Plot and save maxlk and medlk models.
     try:
