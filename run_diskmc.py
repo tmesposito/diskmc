@@ -54,12 +54,6 @@ if ntemps > 1:
 else:
     partemp = False
 
-# Set type of models to create.
-scatlight = True
-fullimg = False
-sed = False
-dustprops = False
-
 
 # |----- PATHS -----| #
 
@@ -166,6 +160,12 @@ except:
 
 # |----- MCMC INITIALIZATION PARAMETERS & PRIORS -----| #
 
+# Set types of models to create at each iteration.
+scatlight = True  # Make scattered-light-only image models?
+fullimg = False  # Make thermal emission + scattered-light image models? Also makes the SED.
+sed = False  # Make the SED? Ignored if fullimg==True.
+dustprops = False  # Make the dust properties?
+
 # NOTE: Parameter key names MUST match those used in diskmc.make_mcfmod().
 # amin and dust_mass are log parameters, so state them here as np.log10(amin), ...
 
@@ -189,7 +189,7 @@ psigmas_lib = None
 
 # For a uniform initialization, set Min/Max value limits for parameters.
 # These MUST fall within the prior boundaries, or walkers will become
-# zombies that never leave a lnprob = NaN condition.
+# zombies that never leave a lnprob == NaN condition.
 plims_lib = dict(aexp=(2.1, 6.4), amin=(-0.9, 1.5),
                 # debris_disk_vertical_profile_exponent=(0.11, 3.),
                 dust_mass=(-8.7, -5.9), #dust_pop_0_mass_fraction=(0.002, 1.),
@@ -203,7 +203,7 @@ plims_lib = dict(aexp=(2.1, 6.4), amin=(-0.9, 1.5),
 # Tuple pairs are exclusive lower and upper bounds (i.e. 0.1 < amin < 10.).
 # NOTE: The priors should be inclusive of any initialization range above;
 # any walker initialized and rejected by the prior may become a zombie that
-# never leaves a lnprob = NaN condition.
+# never leaves a lnprob == NaN condition.
 priors = dict(aexp=(2.0, 6.5), amin=(-1.0, 1.6),
                 # debris_disk_vertical_profile_exponent=(0.11, 3.),
                 dust_mass=(-8.8, -6.0), #dust_pop_0_mass_fraction=(0.002, 1.),
