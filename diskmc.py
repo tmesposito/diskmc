@@ -8,6 +8,7 @@ __author__ = 'Tom Esposito'
 __copyright__ = 'Copyright 2018, Tom Esposito'
 __credits__ = ['Tom Esposito']
 __license__ = 'GNU General Public License v3'
+__version__ = '0.1.2'
 __maintainer__ = 'Tom Esposito'
 __email__ = 'espos13@gmail.com'
 __status__ = 'Development'
@@ -22,6 +23,7 @@ except:
 import time, datetime as dt
 import glob
 import hickle
+import pickle
 import gzip
 import numpy as np
 import matplotlib.pyplot as plt
@@ -537,11 +539,13 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     except:
         mcf_version = 'unknown'
     print("Running MCFOST version %s" % mcf_version)
+    print("Running diskmc version %s" % __version__)
     
     log_preamble = ['|---MCMC LOG---|\n\n', '%s' % s_ident,
                         '\nLOG DATE: ' + dt.date.isoformat(dt.date.today()),
                         '\nJOB START: ' + start,
                         '\nNPROCESSORS: %d\n' % nthreads,
+                        '\ndiskmc version: %s' % __version__,
                         '\nMCFOST version: %s' % mcf_version,
                         '\nMCFOST PARFILE: ', mcmod.parfile,
                         '\n\nMCMC PARAMS: Ndim: %d, Nwalkers: %d, Nburn: %d, Niter: %d, Nthin: %d, Nthreads: %d' % (ndim, nwalkers, nburn, niter, nthin, nthreads),
@@ -549,8 +553,6 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                         '\nINITIALIZATION: ', init_type,
                         '\na = %.2f' % mc_a,
                         '\nWavelength = %s microns' % str(lam),
-                        '\n',
-                        '\n|--- RESULTS FOR ALL ITERATIONS (NO BURN-IN EXCLUDED) ---|',
                         '\n',
                         ]
     mcmc_log.writelines(log_preamble)
@@ -590,7 +592,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             if bb in [nburn/4, nburn/2, 3*nburn/4]:
                 print("PROCESSING ITERATION %d; BURN-IN %.1f%% COMPLETE..." % (bb, 100*float(bb)/nburn))
             pass
-    
+
         # Print burn-in autocorrelation time and acceptance fraction.
         try:
             max_acl_burn = np.nanmax(sampler.acor) # fails if too few iterations
@@ -601,34 +603,16 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
             print("Mean, Median Burn-in Acceptance Fractions: %.2f, %.2f" % (np.mean(sampler.acceptance_fraction[0]), np.median(sampler.acceptance_fraction[0])))
         else:
             print("Mean, Median Burn-in Acceptance Fractions: %.2f, %.2f" % (np.mean(sampler.acceptance_fraction), np.median(sampler.acceptance_fraction)))
-    
-    # # TEMP TESTING!!! Plot the burn-in walker chains. Red dots are p0.
-        # try:
-        #     ch_burn = sampler.chain[0]
-        #     fig1 = plt.figure(11)
-        #     fig1.clf()
-        #     for aa in range(0,ndim):
-        #         sbpl = "32%d" % (aa+1)
-        #         ax = fig1.add_subplot(int(sbpl))
-        #         for ww in range(nwalkers):
-        #             ax.plot(range(0,nburn), ch_burn[ww,:,aa], 'k', alpha=0.3)
-        #             ax.plot(0., p0[0,ww,aa], 'ro')
-        #         ax.set_xlim(-0.5, niter)
-        #         # ax.set_ylabel(r'%s (dim %d)' % (pkeys[ff], ff))
-        #     plt.draw()
-        # except:
-        #     pass
-        
-        
+
         # Pause interactively between burn-in and main phase.
         # Comment this out if you don't want the script to pause here.
         # pdb.set_trace()
-        
+
         # Reset the sampler chains and lnprobability after burn-in.
         sampler.reset()
-    
+
         print("BURN-IN COMPLETE!")
-    
+
     elif (nburn==0) & (init_samples_fn is not None):
         print("Walkers initialized from file and no burn-in samples requested.")
         sampler.reset()
@@ -648,50 +632,68 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     print("\nMAIN-PHASE MCMC START...\n")
     if partemp:
         for nn, (pp, lnprob, lnlike) in enumerate(sampler.sample(pburn, lnprob0=lnprob_burn, lnlike0=lnlike_burn, iterations=niter)):
-            # if np.any(np.isnan(lnprob)):
-            #     print("WE'VE GOT A NAN LNPROB!!")
-            #     pdb.set_trace()
             # Print progress every 25%.
             if nn in [niter/4, niter/2, 3*niter/4]:
-                print("PROCESSING ITERATION %d; MCMC %.1f%% COMPLETE..." % (nn, 100*float(nn)/niter))
+                print("Processing iteration %d; MCMC %.1f%% complete..." % (nn, 100*float(nn)/niter))
                 # Log the full sampler or chain (all temperatures) every so often.
+                sampler_dict = sampler.__dict__.copy()
                 try:
-                    # Delete some items from the sampler that don't hickle well.
-                    sampler_dict = sampler.__dict__.copy()
+                    # Delete some items from the sampler that may not hickle well.
                     for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
                         try:
                             sampler_dict.__delitem__(item)
                         except:
                             continue
-                    hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w')
-                    print("Sampler logged at iteration %d." % nn)
-                except:
-                    hickle.dump(sampler.chain, log_path + '%s_mcmc_full_chain.hkl' % s_ident, mode='w')
+                    log_name = log_path + '%s_mcmc_full_sampler.hkl' % s_ident
+                    hickle.dump(sampler_dict, log_name, mode='w')
+                # If hickle fails, try to pickle the full sampler.
+                except NotImplementedError, ee:
+                    log_name = log_path + '%s_mcmc_full_sampler.pkl' % s_ident
+                    with open(log_name, 'w+') as pickle_log:
+                        pickle.dump(sampler_dict, pickle_log)
+                    print("WARNING: Sampler pickled (hickle FAILED) at iteration %d as %s" % (nn, log_name))
+                    print("Hickle error was: %s" % ee)
+                # If hickle and pickle both fail, just log the chain array only.
+                except Exception, ee:
+                    print("WARNING: Logging sampler FAILED at iteration %d!" % nn)
+                    print("Error was: %s" % ee)
+                    log_name = log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident
+                    hickle.dump(sampler.chain, log_name, mode='w', compression='gzip', compression_opts=7)
+                    print("Logged the MCMC CHAIN ONLY (all temps) as %s" % log_name)
+                else:
+                    print("Sampler logged at iteration %d as %s" % (nn, log_name))
     else:
         for nn, (pp, lnprob, lnlike) in enumerate(sampler.sample(pburn, lnprob0=lnprob_burn, iterations=niter)):
             # Print progress every 25%.
             if nn in [niter/4, niter/2, 3*niter/4]:
-                print("PROCESSING ITERATION %d; MCMC %.1f%% COMPLETE..." % (nn, 100*float(nn)/niter))
-                # Log the full sampler or chain (all temperatures) every so often.
+                print("Processing iteration %d; MCMC %.1f%% complete..." % (nn, 100*float(nn)/niter))
+                # Log the full sampler or chain every so often.
+                sampler_dict = sampler.__dict__.copy()
                 try:
                     # Delete some items from the sampler that don't hickle well.
-                    sampler_dict = sampler.__dict__.copy()
-                    if partemp:
-                        for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
-                            try:
-                                sampler_dict.__delitem__(item)
-                            except:
-                                continue
-                    else:
-                        for item in ['pool', 'lnprobfn', 'runtime_sortingfn', '_random', 'kwargs']:
-                            try:
-                                sampler_dict.__delitem__(item)
-                            except: #KeyError
-                                continue
-                    hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w')
-                    print("Sampler logged at iteration %d." % nn)
-                except:
-                    hickle.dump(sampler.chain, log_path + '%s_mcmc_full_chain.hkl' % s_ident, mode='w')
+                    for item in ['pool', 'lnprobfn', 'runtime_sortingfn',
+                                '_random', 'kwargs', 'logl', 'logp',
+                                'logpkwargs', 'loglkwargs']:
+                        try:
+                            sampler_dict.__delitem__(item)
+                        except:
+                            continue
+                    log_name = log_path + '%s_mcmc_full_sampler.hkl' % s_ident
+                    hickle.dump(sampler_dict, log_name, mode='w')
+                except NotImplementedError, ee:
+                    log_name = log_path + '%s_mcmc_full_sampler.pkl' % s_ident
+                    with open(log_name, 'w+') as pickle_log:
+                        pickle.dump(sampler_dict, pickle_log)
+                    print("WARNING: Sampler pickled (hickle FAILED) at iteration %d as %s" % (nn, log_name))
+                    print("Hickle error was: %s" % ee)
+                except Exception, ee:
+                    print("WARNING: Logging sampler FAILED at iteration %d!" % nn)
+                    print("Error was: %s" % ee)
+                    log_name = log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident
+                    hickle.dump(sampler.chain, log_name, mode='w', compression='gzip', compression_opts=7)
+                    print("Logged the MCMC CHAIN ONLY as %s" % log_name)
+                else:
+                    print("Sampler logged at iteration %d as %s" % (nn, log_name))
     
     
     print('\nMCMC RUN COMPLETE!\n')
@@ -702,32 +704,45 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     # Log the sampler output and chains. Also get the max and median likelihood
     # parameter values and save models for them.
     
-    # If possible, dump the whole sampler to an HDF5 log file (could be large).
-    # If that fails for some reason, just dump the sampler chains.
+    # If possible, save the whole sampler to an HDF5 log file (could be large).
+    # If that fails because hickle won't handle something in the sampler,
+    # try to pickle it instead. If that still fails, just log the sampler chains.
+    sampler_dict = sampler.__dict__.copy()
     try:
-        # Delete some items from the sampler that don't hickle well
-        # and are not typically useful later.
-        sampler_dict = sampler.__dict__.copy()
+        # Delete some items from the sampler that may not hickle well.
         if partemp:
             for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
                 try:
                     sampler_dict.__delitem__(item)
-                except: #KeyError
+                except:
                     continue
         else:
             for item in ['pool', 'lnprobfn', 'runtime_sortingfn', '_random', 'kwargs']:
                 try:
                     sampler_dict.__delitem__(item)
-                except: #KeyError
+                except:
                     continue
-        hickle.dump(sampler_dict, log_path + '%s_mcmc_full_sampler.hkl' % s_ident, mode='w') #, compression='gzip', compression_opts=7)
-        print("Full sampler (all temps) logged as " + log_path + '%s_mcmc_full_sampler.hkl' % s_ident)
-    except:
-        # As last resort, log the final full chain (all temperatures) for post-analysis.
-        print("FAILED to log full sampler!! Trying to save the chains...")
-        hickle.dump(sampler.chain, log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident, mode='w', compression='gzip', compression_opts=7)
-        print("MCMC full chain (all temps) logged as " + log_path + '%s_mcmc_full_chain...' % s_ident)
-    
+        log_name = log_path + '%s_mcmc_full_sampler.hkl' % s_ident
+        hickle.dump(sampler_dict, log_name, mode='w')
+    # If hickle fails, try to pickle the full sampler.
+    except NotImplementedError, ee:
+        log_name = log_path + '%s_mcmc_full_sampler.pkl' % s_ident
+        with open(log_name, 'w+') as pickle_log:
+            pickle.dump(sampler_dict, pickle_log)
+        log_message = "WARNING: Final sampler pickled (hickle FAILED) as %s\nHickle error was: %s" % (log_name, ee)
+        print(log_message)
+    # If hickle and pickle both fail, just log the chain array only.
+    except Exception, ee:
+        print("WARNING: Logging final sampler FAILED!\nError was: %s" % ee)
+        log_name = log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident
+        hickle.dump(sampler.chain, log_name, mode='w', compression='gzip', compression_opts=7)
+        print("Logged the MCMC CHAIN ONLY (all temps) as %s" % log_name)
+        log_message = "WARNING: Logging final sampler FAILED!\nError was: %s\nLogged the MCMC CHAIN ONLY (all temps) as %s" % (ee, log_name)
+    else:
+        log_message = "Final sampler logged as %s" % log_name
+        print(log_message)
+
+
     # Chain has shape (ntemps, nwalkers, nsteps/nthin, ndim).
     if partemp:
         assert sampler.chain.shape == (ntemps, nwalkers, niter/nthin, ndim)
@@ -736,6 +751,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     
     # Re-open the text log for additional info.
     mcmc_log = open(mcmc_log_fn, 'a')
+    mcmc_log.writelines(['\n' + log_message,
+                        '\n\n|--- RESULTS FOR ALL ITERATIONS (NO BURN-IN EXCLUDED) ---|',
+                        '\n'])
     
     # If multiple temperatures, take zero temperature walkers because only they
     # sample the posterior distribution.

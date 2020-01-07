@@ -91,7 +91,8 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                 nstop=None, add_fn=None, add_ind=0,
                 make_maxlk=False, make_medlk=False, lam=1.6,
                 range_dict=None, range_dict_tri=None, prior_dict_tri=None,
-                xticks_dict_tri=None, contour_colors='k', plot=True, save=False):
+                xticks_dict_tri=None, contour_colors='k', plot=True,
+                use_pickle=False, save=False):
     """
     Plot walker chains, histograms, and corner plot for a given sampler.
     
@@ -118,12 +119,13 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         xticks_dict_tri:
         contour_colors: str or list of str matplotlib color names to use as corner
             plot contour line colors.
+        use_pickle: True to load a pickle log; default False is to load a hickle log.
     
     Outputs:
         Returns nothing, but creates a bunch of figures.
     
     """
-    import gzip, corner, hickle
+    import gzip, corner, hickle, pickle
     from diskmc import make_mcfmod
     matplotlib.rc('text', usetex=False)
     
@@ -136,13 +138,19 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     # Has dimensions [nwalkers, nstep, pl.shape].
     # ind_ch = 4
     
+    try:
+        if use_pickle:
+            sampler = pickle.load(open(path + s_ident + '_mcmc_full_sampler.pkl', 'r'))
+        else:
+            sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
+    except AttributeError, ee:
+        print("FAILED to load sampler from hickle log. Not a valid hickle file.")
+        return
+    except IOError, ee:
+        print("FAILED to load sampler from hickle log. Check s_ident and path and try again.")
+        return
     
     if partemp:
-        try:
-            sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
-        except:
-            print("FAILED to load sampler from log. Check s_ident and path and try again.")
-            return
         ch = sampler['_chain']
         betas = sampler['_betas'] # temperature ladder
         ntemps = ch.shape[0]
@@ -167,15 +175,6 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         print("Effective sigma of Gaussian likelihood (times true sigma, increasing):")
         print((1/betas)**0.5)
     else:
-# TEMP!!! TESTING
-        try:
-           sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
-        
-        # IOError
-        # RuntimeError
-        except:
-            print("FAILED to load sampler from log. Check s_ident and path and try again.")
-            return
         ntemp_view = 0
         ch = sampler['_chain']
         beta = 1.
@@ -397,6 +396,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     except:
         print "\nFailed to draw chunk histograms."
     
+    # Plot the walker chains for each parameter.
     if plot:
         fontSize = 12
         
@@ -500,15 +500,15 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         #     ax2.plot(np.exp(wa), alpha=0.15) #5./nwalkers)
         ax2.axhline(y=0, c='gray')
         for stp in range(nstep):
-            ax2.plot(stp, np.where(np.isnan(lnprob[:,stp]))[0].size, 'r.')
-            ax2.plot(stp, np.where(lnprob[:,stp]==-np.inf)[0].size, 'k.')
+            ax2.plot(stp, np.where(np.isnan(lnprob[:,stp]))[0].size, c='C1', marker='.', markersize=10)
+            ax2.plot(stp, np.where(lnprob[:,stp]==-np.inf)[0].size, 'k.', markersize=6)
         # if nburn > 0:
         #     ax2.axvspan(0, nburn, facecolor='lightgray', zorder=0, edgecolor='None')
         ax2.set_ylim(-nwalkers*0.02, nwalkers+1)
         ax2.set_xlim(-nstep*0.01, nstep+(nstep*0.01))
         ax2.set_xlabel('Step', fontsize=fontSize+1)
         ax2.set_ylabel('# walkers', fontsize=fontSize+1)
-        ax2.set_title(r'walkers w/ lnprob = -$\infty$ (black) or NaN (red): Ntemp=%d' % ntemp_view, fontsize=fontSize+1)
+        ax2.set_title(r'walkers w/ lnprob = -$\infty$ (black) or NaN (orange): Ntemp=%d' % ntemp_view, fontsize=fontSize+1)
         # fig4.tight_layout()
         plt.setp(ax1.yaxis.get_majorticklabels(), fontsize=fontSize+1)
         plt.setp(ax1.xaxis.get_majorticklabels(), fontsize=fontSize+1)
@@ -562,8 +562,8 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                 ax.axhline(y=0, color='c', linestyle='--')
                 for ac in acf_all[aa]:
                     ax.plot(ac, c='k', alpha=10./nwalkers)
-                ax.plot(np.mean(acf_all[aa], axis=0), c='r', linewidth=1)
-                ax.text(0.7, 0.8, pkeys[aa], color='r', fontsize=10, weight='bold', transform=ax.transAxes)
+                ax.plot(np.mean(acf_all[aa], axis=0), c='C1', linewidth=1)
+                ax.text(0.7, 0.8, pkeys[aa], color='C1', fontsize=10, weight='bold', transform=ax.transAxes)
                 # Hide all but the bottom axis labels.
                 if aa != ndim - 1:
                     ax.set_yticklabels(['']*ax.get_yticklabels().__len__())
@@ -616,10 +616,11 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         # Thin out samples for triangle plot by only plotting every nthin sample.
         samples_tri = samples[::nthin, tri_sort]
         # Convert disk_pa to on-sky PA (E of N) measured to front edge CCW from min scattering angle.
-        if params_medlk['disk_pa'] < 270:
-            samples_tri[:, np.where(tri_incl=='disk_pa')[0]] = samples_tri[:, np.where(tri_incl=='disk_pa')[0]] + 90.
-        elif params_medlk['disk_pa'] >= 270:
-            samples_tri[:, np.where(tri_incl=='disk_pa')[0]] = samples_tri[:, np.where(tri_incl=='disk_pa')[0]] - 270.
+        if 'disk_pa' in pkeys:
+            if params_medlk['disk_pa'] < 270:
+                samples_tri[:, np.where(tri_incl=='disk_pa')[0]] = samples_tri[:, np.where(tri_incl=='disk_pa')[0]] + 90.
+            elif params_medlk['disk_pa'] >= 270:
+                samples_tri[:, np.where(tri_incl=='disk_pa')[0]] = samples_tri[:, np.where(tri_incl=='disk_pa')[0]] - 270.
         
         labels_tri = [labels_dict[key] for key in tri_incl]
         if range_dict_tri is not None:
@@ -678,8 +679,8 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
             ax.tick_params(axis='y', which='both', pad=1) # reduce space between ticks and tick labels
             plt.setp(ax.yaxis.get_majorticklabels(), rotation=0) # make y tick labels horizontal
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=70) # make x tick labels more vertical
-            ax.xaxis.set_label_coords(0.5, -0.45) # move x labels downward
-            ax.yaxis.set_label_coords(-0.4, 0.5) # move y labels leftward
+            ax.xaxis.set_label_coords(0.5, -0.05 - ndim*0.06) # move x labels downward
+            ax.yaxis.set_label_coords(-0.03 - ndim*0.06, 0.5) # move y labels leftward
         # Adjust margins of figure.
         plt.subplots_adjust(bottom=0.1, top=0.99, left=0.09, right=0.99)
         
@@ -716,7 +717,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     # figsave = plt.figure(##)
     # figsave.savefig(path + '##_mmcmc_corner.png', dpi=300, format='png')
     
-    # pdb.set_trace()
+    pdb.set_trace()
     
     return
 
