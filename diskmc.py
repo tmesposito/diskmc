@@ -35,7 +35,10 @@ try:
     import acor
 except ImportError:
     raise ImportError('Package "acor" could not be imported; this is not crucial but no autocorrelation info will be calculated.')
-from emcee import PTSampler, EnsembleSampler
+try:
+    from emcee import PTSampler, EnsembleSampler
+except ImportError:
+    from emcee import EnsembleSampler
 #from emcee.utils import MPIPool
 #from mpi4py import MPI
 
@@ -647,14 +650,14 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                     log_name = log_path + '%s_mcmc_full_sampler.hkl' % s_ident
                     hickle.dump(sampler_dict, log_name, mode='w')
                 # If hickle fails, try to pickle the full sampler.
-                except NotImplementedError, ee:
+                except NotImplementedError as ee:
                     log_name = log_path + '%s_mcmc_full_sampler.pkl' % s_ident
                     with open(log_name, 'w+') as pickle_log:
                         pickle.dump(sampler_dict, pickle_log)
                     print("WARNING: Sampler pickled (hickle FAILED) at iteration %d as %s" % (nn, log_name))
                     print("Hickle error was: %s" % ee)
                 # If hickle and pickle both fail, just log the chain array only.
-                except Exception, ee:
+                except Exception as ee:
                     print("WARNING: Logging sampler FAILED at iteration %d!" % nn)
                     print("Error was: %s" % ee)
                     log_name = log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident
@@ -680,13 +683,13 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                             continue
                     log_name = log_path + '%s_mcmc_full_sampler.hkl' % s_ident
                     hickle.dump(sampler_dict, log_name, mode='w')
-                except NotImplementedError, ee:
+                except NotImplementedError as ee:
                     log_name = log_path + '%s_mcmc_full_sampler.pkl' % s_ident
                     with open(log_name, 'w+') as pickle_log:
                         pickle.dump(sampler_dict, pickle_log)
                     print("WARNING: Sampler pickled (hickle FAILED) at iteration %d as %s" % (nn, log_name))
                     print("Hickle error was: %s" % ee)
-                except Exception, ee:
+                except Exception as ee:
                     print("WARNING: Logging sampler FAILED at iteration %d!" % nn)
                     print("Error was: %s" % ee)
                     log_name = log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident
@@ -725,14 +728,14 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         log_name = log_path + '%s_mcmc_full_sampler.hkl' % s_ident
         hickle.dump(sampler_dict, log_name, mode='w')
     # If hickle fails, try to pickle the full sampler.
-    except NotImplementedError, ee:
+    except NotImplementedError as ee:
         log_name = log_path + '%s_mcmc_full_sampler.pkl' % s_ident
         with open(log_name, 'w+') as pickle_log:
             pickle.dump(sampler_dict, pickle_log)
         log_message = "WARNING: Final sampler pickled (hickle FAILED) as %s\nHickle error was: %s" % (log_name, ee)
         print(log_message)
     # If hickle and pickle both fail, just log the chain array only.
-    except Exception, ee:
+    except Exception as ee:
         print("WARNING: Logging final sampler FAILED!\nError was: %s" % ee)
         log_name = log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident
         hickle.dump(sampler.chain, log_name, mode='w', compression='gzip', compression_opts=7)

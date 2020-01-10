@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 import os
+import sys
 import pdb
 import numpy as np
 import matplotlib, matplotlib.pyplot as plt
-from emcee import autocorr
+pyversion = sys.version_info.major
 
 
 class sedMcfost:
@@ -89,10 +90,10 @@ class sedMcfost:
 
 def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=1, 
                 nstop=None, add_fn=None, add_ind=0,
-                make_maxlk=False, make_medlk=False, lam=1.6,
+                make_maxlk=False, make_medlk=False, lam=1.6, labels_dict=None,
                 range_dict=None, range_dict_tri=None, prior_dict_tri=None,
                 xticks_dict_tri=None, contour_colors='k', plot=True,
-                use_pickle=False, save=False):
+                use_pickle=False, use_backend=False, pkeys_in=None, save=False):
     """
     Plot walker chains, histograms, and corner plot for a given sampler.
     
@@ -113,6 +114,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         make_maxlk: True to make the MCFOST model for the max likelihood params.
         make_medlk: True to make the MCFOST model for the median likelihood params.
         lam: wavelength at which to make maxlk and medlk models [microns].
+        labels_dict:
         range_dict:
         range_dict_tri:
         prior_dict_tri:
@@ -120,16 +122,33 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         contour_colors: str or list of str matplotlib color names to use as corner
             plot contour line colors.
         use_pickle: True to load a pickle log; default False is to load a hickle log.
+        use_backend: True to load a log using an emcee v3+ backend.
+        pkeys_in: array of str parameter key names that will overwrite any saved
+            in the sampler, or be used if none exist in the loaded log file.
     
     Outputs:
         Returns nothing, but creates a bunch of figures.
     
     """
-    import gzip, corner, hickle, pickle
-    from diskmc import make_mcfmod
-    matplotlib.rc('text', usetex=False)
+    import gzip
+    import corner
+    import hickle
+    import pickle
+    import emcee
+    if int(emcee.__version__.split('.')[0]) >= 3:
+        autocorr_func = emcee.autocorr.function_1d
+    elif int(emcee.__version__.split('.')[0]) == 2:
+        autocorr_func = emcee.autocorr.function
     
-    print "\nThinning samples by %d" % nthin
+    if pyversion == 2:
+        from diskmc import make_mcfmod
+    else:
+        from diskmc.diskmc import make_mcfmod
+    matplotlib.rc('text', usetex=False)
+    if use_backend:
+        from emcee import backends
+    
+    print("\nThinning samples by %d" % nthin)
     
     # Expand any paths.
     path = os.path.expanduser(path)
@@ -141,17 +160,27 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     try:
         if use_pickle:
             sampler = pickle.load(open(path + s_ident + '_mcmc_full_sampler.pkl', 'r'))
+        elif use_backend:
+            partemp = False
+            sampler_reader = backends.HDFBackend(path + s_ident, read_only=True)
+            sampler = dict()
+            # Transpose first two dimensions to match old format of chain.
+            sampler['_chain'] = np.transpose(sampler_reader.get_chain(), axes=[1,0,2])
+            sampler['_lnprob'] = np.transpose(sampler_reader.get_log_prob(), axes=[1,0])
         else:
             sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
-    except AttributeError, ee:
+    except AttributeError as ee:
+        print(ee)
         print("FAILED to load sampler from hickle log. Not a valid hickle file.")
         return
-    except IOError, ee:
-        print("FAILED to load sampler from hickle log. Check s_ident and path and try again.")
+    except IOError as ee:
+        print(ee)
+        print("FAILED to load sampler from log. Check s_ident and path and try again.")
         return
     
+    ch = sampler['_chain'] # get sampler chain array
+    
     if partemp:
-        ch = sampler['_chain']
         betas = sampler['_betas'] # temperature ladder
         ntemps = ch.shape[0]
         nwalkers = ch.shape[1]
@@ -176,7 +205,6 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         print((1/betas)**0.5)
     else:
         ntemp_view = 0
-        ch = sampler['_chain']
         beta = 1.
         lnprob = sampler['_lnprob']/beta
         nwalkers = ch.shape[0]
@@ -192,19 +220,20 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         temp_swap_frac = sampler['nswap_accepted']/sampler['nswap']
         print("Inter-temperature swap fractions by (increasing) temperature:")
         print(temp_swap_frac)
-    
+    pdb.set_trace()
     # Autocorrelation function.
     try:
         # Compute it for each walker in each parameter. Do not thin this, generally.
-        acf_all = np.array([[autocorr.function(ch[ii, :nstop, jj]) for ii in range(nwalkers)] for jj in range(ndim)])
+        acf_all = np.array([[autocorr_func(ch[ii, :nstop, jj]) for ii in range(nwalkers)] for jj in range(ndim)])
         # Integrated autocorrelation time.
         act = np.array([[autocorr.integrated_time(ch[ii, :nstop, jj], c=1) for ii in range(nwalkers)] for jj in range(ndim)])
         act_means = np.mean(act, axis=1)
         print("\nIntegrated Autocorrelation Times (steps): " + str(np.round(act_means)))
         if np.any(act_means*50 >= nstep):
             print("WARNING: At least one autocorrelation time estimate is shorter than 50*nstep and should not be trusted.")
-    except:
+    except Exception as ee:
         acf_all = None
+        print(ee)
         print("Failed to calculate autocorrelation functions. Chain may be too short.")
 
     
@@ -219,12 +248,16 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         lnprob[:, add_ind:] = lnprob_add
     
     
-    # Get parameter labels from sampler.
-    try:
-        pkeys = sampler['pkeys_all']
-    except:
-        pkeys = np.array(ndim*['None'])
-    
+    # Get parameter labels from sampler or input arg.
+    if pkeys_in is None:
+        try:
+            pkeys = sampler['pkeys_all']
+        except:
+            pkeys = np.array(['p%d' % ii for ii in range(0, ndim)])
+            if labels_dict is None:
+                labels_dict = dict(zip(pkeys, pkeys))
+    else:
+        pkeys = pkeys_in
     
     # Make sure that mass fractions are properly normalized to sum to 1.0.
     try:
@@ -258,27 +291,27 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     ind_lk_max = np.where(lnprob==np.nanmax(lnprob))
     lk_max = np.e**lnprob.max()
     if len(ind_lk_max[0]) > 1:
-        print "\nHEY! More than one sample matches the max likelihood! Only reporting the first here (full set is:", ind_lk_max, ")."
+        print("\nHEY! More than one sample matches the max likelihood! Only reporting the first here. The full set is:", ind_lk_max)
         ind_lk_max = ([ind_lk_max[0][0]], [ind_lk_max[1][0]])
     
     params_maxlk = {}
     params_medlk = {}
     
-    print "\nMax ln(Probability) = %.3e  (chain %d, step %d) and param values:" % (lnprob.max(), ind_lk_max[0][0], ind_lk_max[1][0])
+    print("\nMax ln(Probability) = %.3e  (chain %d, step %d) and param values:" % (lnprob.max(), ind_lk_max[0][0], ind_lk_max[1][0]))
     for kk, key in enumerate(pkeys[pkeys!='spl_br']):
-        print key, '= %.3f' % ch[ind_lk_max[0], ind_lk_max[1], kk]
+        print('%s = %.3f' % (key, ch[ind_lk_max[0], ind_lk_max[1], kk]))
         params_maxlk[key] = ch[ind_lk_max[0], ind_lk_max[1], kk][0]
     pl_maxlk = np.array([params_maxlk[pk] for pk in pkeys])
     
-    perc_list = map(lambda v: (v[1], v[2]-v[1], v[1]-v[0]),
-                             zip(*np.percentile(samples, [16, 50, 84], axis=0)))
+    perc_list = list(map(lambda v: (v[1], v[2]-v[1], v[1]-v[0]),
+                             zip(*np.percentile(samples, [16, 50, 84], axis=0))))
     
-    perc_3sigma_list = map(lambda v: (v[1], v[2]-v[1], v[1]-v[0]),
-                             zip(*np.percentile(samples, [0.27, 50, 99.73], axis=0)))
-        
-    print "\nMedian (50%) +/- 34% confidence intervals (84%, 16% values) ; (99.7%, 0.3%):"
+    perc_3sigma_list = list(map(lambda v: (v[1], v[2]-v[1], v[1]-v[0]),
+                             zip(*np.percentile(samples, [0.27, 50, 99.73], axis=0))))
+    
+    print("\nMedian (50%) +/- 34% confidence intervals (84%, 16% values) ; (99.7%, 0.3%):")
     for kk, key in enumerate(pkeys[pkeys!='spl_br']):
-        print key, '= %.3f +/- %.3f/%.3f  (%.3f, %.3f) ; 99.7%% (%.3f, %.3f)' % (perc_list[kk][0], perc_list[kk][1], perc_list[kk][2], perc_list[kk][0]+perc_list[kk][1], perc_list[kk][0]-perc_list[kk][2], perc_3sigma_list[kk][0]+perc_3sigma_list[kk][1], perc_3sigma_list[kk][0]-perc_3sigma_list[kk][2])
+        print('%s = %.3f +/- %.3f/%.3f  (%.3f, %.3f) ; 99.7%% (%.3f, %.3f)' % (key, perc_list[kk][0], perc_list[kk][1], perc_list[kk][2], perc_list[kk][0]+perc_list[kk][1], perc_list[kk][0]-perc_list[kk][2], perc_3sigma_list[kk][0]+perc_3sigma_list[kk][1], perc_3sigma_list[kk][0]-perc_3sigma_list[kk][2]))
         params_medlk[key] = perc_list[kk][0]
     pl_medlk = np.array([params_medlk[pk] for pk in pkeys])
     
@@ -295,14 +328,15 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                     dir_newmod, s_ident, fnstring='%s_mcmc_medlk' % s_ident, lam=lam)
     
     # Variable labels for display.
-    labels_dict = dict(aexp='$q$', amin=r'log $a_{min}$',
-        debris_disk_vertical_profile_exponent=r'$\gamma$',
-        disk_pa='$PA$', dust_mass=r'log $M_d$', #r'$M_{d}$ ($M_\odot$)',
-        dust_pop_0_mass_fraction=r'$m_{Si}$', dust_pop_1_mass_fraction=r'$m_{aC}$',
-        dust_pop_2_mass_fraction=r'$m_{H20}$', dust_vmax=r'$V_{max}$',
-        gamma_exp=r'$\alpha_{in}$', inc='$i$', porosity='porosity',
-        r_critical=r'$R_c$', r_in=r'$R_{in}$', r_out=r'$R_{out}$',
-        scale_height=r'$H_0$', surface_density_exp=r'$\alpha_{out}$')
+    if labels_dict is None:
+        labels_dict = dict(aexp='$q$', amin=r'log $a_{min}$',
+            debris_disk_vertical_profile_exponent=r'$\gamma$',
+            disk_pa='$PA$', dust_mass=r'log $M_d$', #r'$M_{d}$ ($M_\odot$)',
+            dust_pop_0_mass_fraction=r'$m_{Si}$', dust_pop_1_mass_fraction=r'$m_{aC}$',
+            dust_pop_2_mass_fraction=r'$m_{H20}$', dust_vmax=r'$V_{max}$',
+            gamma_exp=r'$\alpha_{in}$', inc='$i$', porosity='porosity',
+            r_critical=r'$R_c$', r_in=r'$R_{in}$', r_out=r'$R_{out}$',
+            scale_height=r'$H_0$', surface_density_exp=r'$\alpha_{out}$')
     
     # Trimmed ranges for walker display plots.
     if range_dict is None:
@@ -345,56 +379,65 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     V = W*(N - 1)/N + B*(M + 1)/M/N
     # Potential scale reduction factor (PSRF) will be close to 1 if converged.
     R = np.sqrt(((dd + 3)/(dd + 1))*(V/W))
-    print "\nPSRF:", R
+    print("\nPSRF:", R)
     
     # Make histograms of chain parameter values for chunks of chain.
-    try:
-        chunk_size = nstep/10 # [steps]
-        N_hists = ch.shape[1]/chunk_size # number of histogram chunks per axis
-        nR = int(np.ceil(len(pkeys)/5.)) # number of rows in figure
-        fig_hist, ax_array_hist = axMaker(nR*5, axRC=[nR,5], axSize=[2., 2.],
-                                spEdge=[0.55, 0.6, 0.2, 0.1], spR=np.array((nR-1)*[[0.6]]),
-                                spC=np.array(nR*[[0.1, 0.1, 0.1, 0.1]]), figNum=49)
-        ax_array_hist = ax_array_hist.flatten()
-        hist_colors = [matplotlib.cm.viridis(jj) for jj in np.linspace(0, 0.9, N_hists)]
-        for jj, pkey in enumerate(pkeys):
-            ax = ax_array_hist[jj]
+    # try:
+    chunk_size = nstep//10 # [steps]
+    N_hists = ch.shape[1]//chunk_size # number of histogram chunks per axis
+    nR = int(np.ceil(len(pkeys)/5.)) # number of rows in figure
+    fig_hist, ax_array_hist = axMaker(nR*5, axRC=[nR,5], axSize=[2., 2.],
+                            spEdge=[0.55, 0.6, 0.2, 0.1], spR=np.array((nR-1)*[[0.6]]),
+                            spC=np.array(nR*[[0.1, 0.1, 0.1, 0.1]]), figNum=49)
+    ax_array_hist = ax_array_hist.flatten()
+    hist_colors = [matplotlib.cm.viridis(jj) for jj in np.linspace(0, 0.9, N_hists)]
+    for jj, pkey in enumerate(pkeys):
+        ax = ax_array_hist[jj]
+        try:
             priors = prior_dict_tri[pkey]
-            chunk_meds = []
-            max_ind = chunk_size - 1
-            hist_ind = 0
-            while max_ind <= ch.shape[1]:
-                # chunk = ch[:, jj*chunk_size:max_ind, jj]
-                chunk = ch[:, max_ind, jj]
+        except:
+            priors = np.array([None, None])
+        chunk_meds = []
+        max_ind = chunk_size - 1
+        hist_ind = 0
+        while max_ind <= ch.shape[1]:
+            # chunk = ch[:, jj*chunk_size:max_ind, jj]
+            chunk = ch[:, max_ind, jj]
+            if (priors[0] is None) or (priors[1] is None):
+                ax.hist(chunk, bins=np.linspace(np.nanmin(ch[:, :, jj]), np.nanmax(ch[:, :, jj]), 20), color=hist_colors[hist_ind],
+                    density=False, histtype='bar', alpha=hist_ind*(chunk_size/float(ch.shape[1])) + (chunk_size/float(ch.shape[1])),
+                    rwidth=0.9, label=str(max_ind + 1))
+            else:
                 ax.hist(chunk, bins=np.linspace(priors[0], priors[1], 20), color=hist_colors[hist_ind],
-                        normed=False, histtype='bar', alpha=hist_ind*(chunk_size/float(ch.shape[1])) + (chunk_size/float(ch.shape[1])),
+                        density=False, histtype='bar', alpha=hist_ind*(chunk_size/float(ch.shape[1])) + (chunk_size/float(ch.shape[1])),
                         rwidth=0.9, label=str(max_ind + 1))
-                max_ind += chunk_size
-                hist_ind += 1
-                # Calculate median of every ~4th chunk.
-                if hist_ind in range(N_hists + 1 - (3*N_hists/4), N_hists+1, N_hists/4):
-                    chunk_meds.append(np.median(chunk))
-            # Print fractional change of every ~4th chunk from previous 4th chunk.
-            if jj == 0:
-                ax.text(0.97, 0.99, '$\Delta$median by quarter', horizontalalignment='right', verticalalignment='top', transform=ax.transAxes, fontsize=8, )
-            for kk in range(0,len(chunk_meds)-1):
-                ax.text(0.97, 0.85-kk*0.1, '%.3f%%' % (100*(chunk_meds[kk+1]-chunk_meds[kk])/float(chunk_meds[kk])), horizontalalignment='right', transform=ax.transAxes, fontsize=8, )
-            ax.set_xlabel(pkey, fontsize=10)
-            ax.set_ylim(0, nwalkers*1.01)
-            ax.tick_params('both', direction='in', labelsize=14)
-            if jj == 0:
-                ax.legend(numpoints=1, fontsize=8, frameon=False)
-            if jj > 0:
-                ax.set_yticklabels([''])
-        
-        # Hide empty axes.
-        if len(ax_array_hist) > len(pkeys):
-            for jj in range(len(ax_array_hist) - len(pkeys)):
-                ax_array_hist[len(pkeys) + jj].set_visible(False)
-        
-        plt.draw()
-    except:
-        print "\nFailed to draw chunk histograms."
+            max_ind += chunk_size
+            hist_ind += 1
+            # Calculate median of every ~4th chunk.
+            if hist_ind in range(N_hists + 1 - (3*N_hists//4), N_hists+1, N_hists//4):
+                chunk_meds.append(np.median(chunk))
+        # Print fractional change of every ~4th chunk from previous 4th chunk.
+        if jj == 0:
+            ax.text(0.97, 0.99, '$\Delta$median by quarter', horizontalalignment='right', verticalalignment='top', transform=ax.transAxes, fontsize=8, )
+        for kk in range(0,len(chunk_meds)-1):
+            ax.text(0.97, 0.85-kk*0.1, '%.3f%%' % (100*(chunk_meds[kk+1]-chunk_meds[kk])/float(chunk_meds[kk])), horizontalalignment='right', transform=ax.transAxes, fontsize=8, )
+        ax.set_xlabel(pkey, fontsize=10)
+        ax.set_ylim(0, nwalkers*1.01)
+        ax.tick_params('both', direction='in', labelsize=14)
+        if jj == 0:
+            ax.legend(numpoints=1, fontsize=8, frameon=False)
+        if jj > 0:
+            ax.set_yticklabels([''])
+    
+    # Hide empty axes.
+    if len(ax_array_hist) > len(pkeys):
+        for jj in range(len(ax_array_hist) - len(pkeys)):
+            ax_array_hist[len(pkeys) + jj].set_visible(False)
+    
+    plt.draw()
+    # except Exception as ee:
+    #     print("\nFailed to draw chunk histograms.")
+    #     print(ee)
     
     # Plot the walker chains for each parameter.
     if plot:
@@ -520,9 +563,8 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         fig6 = plt.figure(55)
         fig6.clf()
         ax1 = fig6.add_subplot(111)
-        # ax2 = fig4.add_subplot(212)
         fig6.subplots_adjust(0.18, 0.13, 0.97, 0.93)
-        ax1.hist(-lnprob.flatten(), bins=100, normed=True, cumulative=True, histtype='step')
+        ax1.hist(-lnprob.flatten(), bins=100, density=True, cumulative=True, histtype='step')
         # for wa in lnprob:
         #     ax1.plot(wa, alpha=0.25) #5./nwalkers)
         # if nburn > 0:
@@ -584,21 +626,25 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
  #                           random=True, Ndraw=200, lam=1.647,
  #                           dust_only=False, silent=True)
         
-        
-        answer = raw_input("\nContinue to make the triangle plot?\n [y/N]?: ").lower()
+        if pyversion == 2:
+            answer = raw_input("\nContinue to make the triangle plot?\n [y/N]?: ").lower()
+        else:
+            answer = input("\nContinue to make the triangle plot?\n [y/N]?: ").lower()
         if answer in ('y', 'yes'):
-            print "Drawing triangle plot (may be slow)..."
+            print("Drawing triangle plot (may be slow)...")
         else:
             pdb.set_trace()
             return
         
         
         # Custom order for corner plot.
-        pkeys_tri = np.array(['inc', 'r_critical', 'r_in', 'r_out', 'scale_height',
-            'disk_pa', 'debris_disk_vertical_profile_exponent', 'surface_density_exp',
-            'gamma_exp', 'dust_mass', 'amin', 'aexp', 'porosity', 'dust_vmax',
-            'dust_pop_0_mass_fraction', 'dust_pop_1_mass_fraction',
-            'dust_pop_2_mass_fraction'])
+# TEMP!!!
+        # pkeys_tri = np.array(['inc', 'r_critical', 'r_in', 'r_out', 'scale_height',
+        #     'disk_pa', 'debris_disk_vertical_profile_exponent', 'surface_density_exp',
+        #     'gamma_exp', 'dust_mass', 'amin', 'aexp', 'porosity', 'dust_vmax',
+        #     'dust_pop_0_mass_fraction', 'dust_pop_1_mass_fraction',
+        #     'dust_pop_2_mass_fraction'])
+        pkeys_tri = pkeys.copy()
         # Tack any other keys onto the end of pkeys_tri.
         if np.any(~np.in1d(pkeys, pkeys_tri)):
             pkeys_tri = np.append(pkeys_tri, pkeys[~np.in1d(pkeys, pkeys_tri)])
@@ -687,9 +733,14 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         # Middle diagonal is tri_axes[ii*samples_tri.shape[1] + ii] for ii in range(0,samples_tri.shape[1]).
         tri_diag = [tri_axes[ii*samples_tri.shape[1] + ii] for ii in range(0,samples_tri.shape[1])]
         for aa, ax in enumerate(tri_diag):
-            priors = prior_dict_tri[tri_incl[aa]]
-            ax.axvline(x=priors[0], c='k', linestyle='-', linewidth=1.5)
-            ax.axvline(x=priors[1], c='k', linestyle='-', linewidth=1.5)
+            try:
+                priors = prior_dict_tri[tri_incl[aa]]
+                if priors[0] is not None:
+                    ax.axvline(x=priors[0], c='k', linestyle='-', linewidth=1.5)
+                if priors[1] is not None:
+                    ax.axvline(x=priors[1], c='k', linestyle='-', linewidth=1.5)
+            except:
+                pass
         
         # Get only the axes in the left column and bottom row.
         tri_edges = [tri_axes[jj*samples_tri.shape[1]] for jj in range(samples_tri.shape[1])] + \
