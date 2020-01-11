@@ -135,28 +135,26 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     import hickle
     import pickle
     import emcee
+    from emcee import autocorr
     if int(emcee.__version__.split('.')[0]) >= 3:
-        autocorr_func = emcee.autocorr.function_1d
+        from emcee.autocorr import function_1d as autocorr_func
     elif int(emcee.__version__.split('.')[0]) == 2:
-        autocorr_func = emcee.autocorr.function
-    
+        from emcee.autocorr import function as autocorr_func
+    if use_backend:
+        from emcee import backends
     if pyversion == 2:
         from diskmc import make_mcfmod
     else:
         from diskmc.diskmc import make_mcfmod
     matplotlib.rc('text', usetex=False)
-    if use_backend:
-        from emcee import backends
+    
     
     print("\nThinning samples by %d" % nthin)
     
     # Expand any paths.
     path = os.path.expanduser(path)
     
-    # Get array of parameter values for each walker at each step in chain.
-    # Has dimensions [nwalkers, nstep, pl.shape].
-    # ind_ch = 4
-    
+    # Load emcee sampler dictionary from a specified log file.
     try:
         if use_pickle:
             sampler = pickle.load(open(path + s_ident + '_mcmc_full_sampler.pkl', 'r'))
@@ -178,6 +176,9 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         print("FAILED to load sampler from log. Check s_ident and path and try again.")
         return
     
+    # Get array of parameter values for each walker at each step in chain.
+    # Dimensions are number of [temps, walkers, iterations, model parameters]
+    # if parallel-tempered, or [walkers, iterations, model parameters] if ensemble.
     ch = sampler['_chain'] # get sampler chain array
     
     if partemp:
@@ -220,7 +221,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         temp_swap_frac = sampler['nswap_accepted']/sampler['nswap']
         print("Inter-temperature swap fractions by (increasing) temperature:")
         print(temp_swap_frac)
-    pdb.set_trace()
+    
     # Autocorrelation function.
     try:
         # Compute it for each walker in each parameter. Do not thin this, generally.
@@ -236,7 +237,6 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         print(ee)
         print("Failed to calculate autocorrelation functions. Chain may be too short.")
 
-    
     # # Optionally load a second sampler and add it to the main one.
     if add_fn is not None:
         sampler_add = hickle.load(path + add_fn + '.hkl')
@@ -382,62 +382,62 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     print("\nPSRF:", R)
     
     # Make histograms of chain parameter values for chunks of chain.
-    # try:
-    chunk_size = nstep//10 # [steps]
-    N_hists = ch.shape[1]//chunk_size # number of histogram chunks per axis
-    nR = int(np.ceil(len(pkeys)/5.)) # number of rows in figure
-    fig_hist, ax_array_hist = axMaker(nR*5, axRC=[nR,5], axSize=[2., 2.],
-                            spEdge=[0.55, 0.6, 0.2, 0.1], spR=np.array((nR-1)*[[0.6]]),
-                            spC=np.array(nR*[[0.1, 0.1, 0.1, 0.1]]), figNum=49)
-    ax_array_hist = ax_array_hist.flatten()
-    hist_colors = [matplotlib.cm.viridis(jj) for jj in np.linspace(0, 0.9, N_hists)]
-    for jj, pkey in enumerate(pkeys):
-        ax = ax_array_hist[jj]
-        try:
-            priors = prior_dict_tri[pkey]
-        except:
-            priors = np.array([None, None])
-        chunk_meds = []
-        max_ind = chunk_size - 1
-        hist_ind = 0
-        while max_ind <= ch.shape[1]:
-            # chunk = ch[:, jj*chunk_size:max_ind, jj]
-            chunk = ch[:, max_ind, jj]
-            if (priors[0] is None) or (priors[1] is None):
-                ax.hist(chunk, bins=np.linspace(np.nanmin(ch[:, :, jj]), np.nanmax(ch[:, :, jj]), 20), color=hist_colors[hist_ind],
-                    density=False, histtype='bar', alpha=hist_ind*(chunk_size/float(ch.shape[1])) + (chunk_size/float(ch.shape[1])),
-                    rwidth=0.9, label=str(max_ind + 1))
-            else:
-                ax.hist(chunk, bins=np.linspace(priors[0], priors[1], 20), color=hist_colors[hist_ind],
+    try:
+        chunk_size = nstep//10 # [steps]
+        N_hists = ch.shape[1]//chunk_size # number of histogram chunks per axis
+        nR = int(np.ceil(len(pkeys)/5.)) # number of rows in figure
+        fig_hist, ax_array_hist = axMaker(nR*5, axRC=[nR,5], axSize=[2., 2.],
+                                spEdge=[0.55, 0.6, 0.2, 0.1], spR=np.array((nR-1)*[[0.6]]),
+                                spC=np.array(nR*[[0.1, 0.1, 0.1, 0.1]]), figNum=49)
+        ax_array_hist = ax_array_hist.flatten()
+        hist_colors = [matplotlib.cm.viridis(jj) for jj in np.linspace(0, 0.9, N_hists)]
+        for jj, pkey in enumerate(pkeys):
+            ax = ax_array_hist[jj]
+            try:
+                priors = prior_dict_tri[pkey]
+            except:
+                priors = np.array([None, None])
+            chunk_meds = []
+            max_ind = chunk_size - 1
+            hist_ind = 0
+            while max_ind <= ch.shape[1]:
+                # chunk = ch[:, jj*chunk_size:max_ind, jj]
+                chunk = ch[:, max_ind, jj]
+                if (priors[0] is None) or (priors[1] is None):
+                    ax.hist(chunk, bins=np.linspace(np.nanmin(ch[:, :, jj]), np.nanmax(ch[:, :, jj]), 20), color=hist_colors[hist_ind],
                         density=False, histtype='bar', alpha=hist_ind*(chunk_size/float(ch.shape[1])) + (chunk_size/float(ch.shape[1])),
                         rwidth=0.9, label=str(max_ind + 1))
-            max_ind += chunk_size
-            hist_ind += 1
-            # Calculate median of every ~4th chunk.
-            if hist_ind in range(N_hists + 1 - (3*N_hists//4), N_hists+1, N_hists//4):
-                chunk_meds.append(np.median(chunk))
-        # Print fractional change of every ~4th chunk from previous 4th chunk.
-        if jj == 0:
-            ax.text(0.97, 0.99, '$\Delta$median by quarter', horizontalalignment='right', verticalalignment='top', transform=ax.transAxes, fontsize=8, )
-        for kk in range(0,len(chunk_meds)-1):
-            ax.text(0.97, 0.85-kk*0.1, '%.3f%%' % (100*(chunk_meds[kk+1]-chunk_meds[kk])/float(chunk_meds[kk])), horizontalalignment='right', transform=ax.transAxes, fontsize=8, )
-        ax.set_xlabel(pkey, fontsize=10)
-        ax.set_ylim(0, nwalkers*1.01)
-        ax.tick_params('both', direction='in', labelsize=14)
-        if jj == 0:
-            ax.legend(numpoints=1, fontsize=8, frameon=False)
-        if jj > 0:
-            ax.set_yticklabels([''])
-    
-    # Hide empty axes.
-    if len(ax_array_hist) > len(pkeys):
-        for jj in range(len(ax_array_hist) - len(pkeys)):
-            ax_array_hist[len(pkeys) + jj].set_visible(False)
-    
-    plt.draw()
-    # except Exception as ee:
-    #     print("\nFailed to draw chunk histograms.")
-    #     print(ee)
+                else:
+                    ax.hist(chunk, bins=np.linspace(priors[0], priors[1], 20), color=hist_colors[hist_ind],
+                            density=False, histtype='bar', alpha=hist_ind*(chunk_size/float(ch.shape[1])) + (chunk_size/float(ch.shape[1])),
+                            rwidth=0.9, label=str(max_ind + 1))
+                max_ind += chunk_size
+                hist_ind += 1
+                # Calculate median of every ~4th chunk.
+                if hist_ind in range(N_hists + 1 - (3*N_hists//4), N_hists+1, N_hists//4):
+                    chunk_meds.append(np.median(chunk))
+            # Print fractional change of every ~4th chunk from previous 4th chunk.
+            if jj == 0:
+                ax.text(0.97, 0.99, '$\Delta$median by quarter', horizontalalignment='right', verticalalignment='top', transform=ax.transAxes, fontsize=8, )
+            for kk in range(0,len(chunk_meds)-1):
+                ax.text(0.97, 0.85-kk*0.1, '%.3f%%' % (100*(chunk_meds[kk+1]-chunk_meds[kk])/float(chunk_meds[kk])), horizontalalignment='right', transform=ax.transAxes, fontsize=8, )
+            ax.set_xlabel(pkey, fontsize=10)
+            ax.set_ylim(0, nwalkers*1.01)
+            ax.tick_params('both', direction='in', labelsize=14)
+            if jj == 0:
+                ax.legend(numpoints=1, fontsize=8, frameon=False)
+            if jj > 0:
+                ax.set_yticklabels([''])
+        
+        # Hide empty axes.
+        if len(ax_array_hist) > len(pkeys):
+            for jj in range(len(ax_array_hist) - len(pkeys)):
+                ax_array_hist[len(pkeys) + jj].set_visible(False)
+        
+        plt.draw()
+    except Exception as ee:
+        print("\nFailed to draw chunk histograms.")
+        print(ee)
     
     # Plot the walker chains for each parameter.
     if plot:
