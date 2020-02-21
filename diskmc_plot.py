@@ -6,6 +6,7 @@ import pdb
 import numpy as np
 import matplotlib, matplotlib.pyplot as plt
 pyversion = sys.version_info.major
+mplversion = int(matplotlib.__version__.split('.')[0])
 
 
 class sedMcfost:
@@ -92,7 +93,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                 nstop=None, add_fn=None, add_ind=0,
                 make_maxlk=False, make_medlk=False, lam=1.6, labels_dict=None,
                 range_dict=None, range_dict_tri=None, prior_dict_tri=None,
-                xticks_dict_tri=None, contour_colors='k', plot=True,
+                xticks_dict_tri=None, contour_colors='k', plot=True, N_panels_chains=6,
                 use_pickle=False, use_backend=False, pkeys_in=None, save=False):
     """
     Plot walker chains, histograms, and corner plot for a given sampler.
@@ -125,6 +126,8 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         use_backend: True to load a log using an emcee v3+ backend.
         pkeys_in: array of str parameter key names that will overwrite any saved
             in the sampler, or be used if none exist in the loaded log file.
+        plot: bool, default is True. False to not plot anything.
+        N_panels_chains: int number of panels per figure for chain plots.
     
     Outputs:
         Returns nothing, but creates a bunch of figures.
@@ -154,13 +157,13 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     # Expand any paths.
     path = os.path.expanduser(path)
     
-    # Load emcee sampler dictionary from a specified log file.
+    # Load emcee sampler from a specified log file with a variety of methods.
     try:
         if use_pickle:
             sampler = pickle.load(open(path + s_ident + '_mcmc_full_sampler.pkl', 'r'))
         elif use_backend:
             partemp = False
-            sampler_reader = backends.HDFBackend(path + s_ident, read_only=True)
+            sampler_reader = backends.HDFBackend(path + s_ident + '_mcmc_full_sampler.h5', read_only=True)
             sampler = dict()
             # Transpose first two dimensions to match old format of chain.
             sampler['_chain'] = np.transpose(sampler_reader.get_chain(), axes=[1,0,2])
@@ -169,7 +172,10 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
             sampler = hickle.load(path + s_ident + '_mcmc_full_sampler.hkl')
     except AttributeError as ee:
         print(ee)
-        print("FAILED to load sampler from hickle log. Not a valid hickle file.")
+        if use_backend:
+            print("FAILED to load chain and/or lnprob array from sampler HDF5 log.")
+        else:
+            print("FAILED to load sampler from hickle log. Not a valid hickle file.")
         return
     except IOError as ee:
         print(ee)
@@ -251,7 +257,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     # Get parameter labels from sampler or input arg.
     if pkeys_in is None:
         try:
-            pkeys = sampler['pkeys_all']
+            pkeys = sampler['pkeys_all'].astype('U') # convert to unicode
         except:
             pkeys = np.array(['p%d' % ii for ii in range(0, ndim)])
             if labels_dict is None:
@@ -330,13 +336,15 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
     # Variable labels for display.
     if labels_dict is None:
         labels_dict = dict(aexp='$q$', amin=r'log $a_{min}$',
+            alpha_in=r'$\alpha_{in}$', gamma_exp=r'$\alpha_{in}$',
+            alpha_out=r'$\alpha_{out}$', surface_density_exp=r'$\alpha_{out}$',
             debris_disk_vertical_profile_exponent=r'$\gamma$',
             disk_pa='$PA$', dust_mass=r'log $M_d$', #r'$M_{d}$ ($M_\odot$)',
             dust_pop_0_mass_fraction=r'$m_{Si}$', dust_pop_1_mass_fraction=r'$m_{aC}$',
             dust_pop_2_mass_fraction=r'$m_{H20}$', dust_vmax=r'$V_{max}$',
-            gamma_exp=r'$\alpha_{in}$', inc='$i$', porosity='porosity',
+            inc='$i$', porosity='porosity',
             r_critical=r'$R_c$', r_in=r'$R_{in}$', r_out=r'$R_{out}$',
-            scale_height=r'$H_0$', surface_density_exp=r'$\alpha_{out}$')
+            scale_height=r'$H_0$')
     
     # Trimmed ranges for walker display plots.
     if range_dict is None:
@@ -353,6 +361,11 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         # Ideally, priors are stored in the sampler log- try to grab those.
         try:
             prior_dict_tri = sampler['logpargs'][1]
+        except:
+            pass
+        
+        try:
+            prior_dict_tri = sampler['priors']
         except:
             prior_dict_tri = dict()
             for pk in pkeys:
@@ -405,27 +418,37 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                 chunk = ch[:, max_ind, jj]
                 if (priors[0] is None) or (priors[1] is None):
                     ax.hist(chunk, bins=np.linspace(np.nanmin(ch[:, :, jj]), np.nanmax(ch[:, :, jj]), 20), color=hist_colors[hist_ind],
-                        density=False, histtype='bar', alpha=hist_ind*(chunk_size/float(ch.shape[1])) + (chunk_size/float(ch.shape[1])),
-                        rwidth=0.9, label=str(max_ind + 1))
+                        histtype='bar', alpha=hist_ind*(chunk_size/float(ch.shape[1])) + (chunk_size/float(ch.shape[1])),
+                        rwidth=0.9, label=str(nburn + max_ind + 1))
                 else:
                     ax.hist(chunk, bins=np.linspace(priors[0], priors[1], 20), color=hist_colors[hist_ind],
-                            density=False, histtype='bar', alpha=hist_ind*(chunk_size/float(ch.shape[1])) + (chunk_size/float(ch.shape[1])),
-                            rwidth=0.9, label=str(max_ind + 1))
+                            histtype='bar', alpha=hist_ind*(chunk_size/float(ch.shape[1])) + (chunk_size/float(ch.shape[1])),
+                            rwidth=0.9, label=str(nburn + max_ind + 1))
                 max_ind += chunk_size
                 hist_ind += 1
                 # Calculate median of every ~4th chunk.
-                if hist_ind in range(N_hists + 1 - (3*N_hists//4), N_hists+1, N_hists//4):
+                chunk_med_spacing = range(N_hists + 1 - (3*N_hists//4), N_hists+1, N_hists//4)
+                if hist_ind in chunk_med_spacing:
                     chunk_meds.append(np.median(chunk))
-            # Print fractional change of every ~4th chunk from previous 4th chunk.
+            # Print legend and fractional change of every ~4th chunk from previous 4th chunk.
             if jj == 0:
-                ax.text(0.97, 0.99, '$\Delta$median by quarter', horizontalalignment='right', verticalalignment='top', transform=ax.transAxes, fontsize=8, )
+                leg = ax.legend(numpoints=1, fontsize=8, frameon=False)
+                if leg._get_loc() == 0:
+                    text_x = 0.63 # move the text to avoid overlapping legend
+                else:
+                    text_x = 0.97
+                ax.text(text_x, 0.99, '$\Delta$median: %s' % str((np.array(chunk_med_spacing[1:])*chunk_size).tolist())[1:-1],
+                        horizontalalignment='right', verticalalignment='top',
+                        transform=ax.transAxes, fontsize=8)
+            else:
+                text_x = 0.97 # reset text location after zeroth panel
             for kk in range(0,len(chunk_meds)-1):
-                ax.text(0.97, 0.85-kk*0.1, '%.3f%%' % (100*(chunk_meds[kk+1]-chunk_meds[kk])/float(chunk_meds[kk])), horizontalalignment='right', transform=ax.transAxes, fontsize=8, )
+                ax.text(text_x, 0.85-kk*0.1, '%.3f%%' % (100*(chunk_meds[kk+1]-chunk_meds[kk])/float(chunk_meds[kk])),
+                        horizontalalignment='right', transform=ax.transAxes,
+                        fontsize=8)
             ax.set_xlabel(pkey, fontsize=10)
             ax.set_ylim(0, nwalkers*1.01)
             ax.tick_params('both', direction='in', labelsize=14)
-            if jj == 0:
-                ax.legend(numpoints=1, fontsize=8, frameon=False)
             if jj > 0:
                 ax.set_yticklabels([''])
         
@@ -436,20 +459,24 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         
         plt.draw()
     except Exception as ee:
-        print("\nFailed to draw chunk histograms.")
         print(ee)
+        print("\nFailed to draw chunk histograms.")
     
     # Plot the walker chains for each parameter.
     if plot:
         fontSize = 12
+        ch_alpha = 10./nwalkers # alpha for chain lines
+        if ch_alpha > 1:
+            ch_alpha = 1 # alpha can't be > 1
         
         fig = plt.figure(50)
         fig.clf()
-        for aa, ff in enumerate(range(0, min(6, ndim), 1)):
-            sbpl = "32%d" % (aa+1)
+        N_rows = (N_panels_chains +1)//2
+        for aa, ff in enumerate(range(0, min(N_panels_chains, ndim), 1)):
+            sbpl = "%d2%d" % (N_rows, aa+1)
             ax = fig.add_subplot(int(sbpl))
             for ww in range(nwalkers):
-                ax.plot(range(0,nstep), ch[ww,:,ff], 'k-', alpha=10./nwalkers)
+                ax.plot(range(nburn,nburn+nstep), ch[ww,:,ff], 'k-', alpha=ch_alpha)
             # if nburn > 0:
             #     ax.axvspan(0, nburn, facecolor='lightgray', zorder=0, edgecolor='None')
             # ax.set_ylabel(r'%.12s (d %d)' % (pkeys[ff], ff))
@@ -466,19 +493,19 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         # Remove xtick labels from all but bottom panels.
         for ax in fig.get_axes()[:-2]:
             ax.set_xticklabels(['']*ax.get_xticklabels().__len__())
-        fig.suptitle('Walkers, by step number', fontsize=fontSize+3)
+        fig.suptitle('%d walkers, by iteration number' % nwalkers, fontsize=fontSize+3)
         fig.subplots_adjust(0.16, 0.06, 0.84, 0.92, wspace=0.05, hspace=0.1)
         # plt.tight_layout()
         plt.draw()
             
-        if ndim > 6:
+        if ndim > N_panels_chains:
             fig = plt.figure(51)
             fig.clf()
-            for aa, ff in enumerate(range(6, min(12, ndim), 1)):
-                sbpl = "32%d" % (aa+1)
+            for aa, ff in enumerate(range(N_panels_chains, min(2*N_panels_chains, ndim), 1)):
+                sbpl = "%d2%d" % (N_rows, aa+1)
                 ax = fig.add_subplot(int(sbpl))
                 for ww in range(nwalkers):
-                    ax.plot(range(0,nstep), ch[ww,:,ff], 'k', alpha=10./nwalkers)
+                    ax.plot(range(nburn,nburn+nstep), ch[ww,:,ff], 'k', alpha=ch_alpha)
                 # if nburn > 0:
                 #     ax.axvspan(0, nburn, facecolor='lightgray', zorder=0, edgecolor='None')
                 # ax.set_ylabel(r'%s (d %d)' % (pkeys[ff], ff))
@@ -498,14 +525,14 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
             # plt.tight_layout()
             plt.draw()
         
-        if ndim > 12:
+        if ndim > 2*N_panels_chains:
             fig = plt.figure(52)
             fig.clf()
-            for aa, ff in enumerate(range(12, min(18, ndim), 1)):
-                sbpl = "32%d" % (aa+1)
+            for aa, ff in enumerate(range(2*N_panels_chains, min(3*N_panels_chains, ndim), 1)):
+                sbpl = "%d2%d" % (N_rows, aa+1)
                 ax = fig.add_subplot(int(sbpl))
                 for ww in range(nwalkers):
-                    ax.plot(range(0,nstep), ch[ww,:,ff], 'k', alpha=10./nwalkers)
+                    ax.plot(range(nburn,nburn+nstep), ch[ww,:,ff], 'k', alpha=ch_alpha)
                 # if nburn > 0:
                 #     ax.axvspan(0, nburn, facecolor='lightgray', zorder=0, edgecolor='None')
                 # ax.set_ylabel(r'%s (d %d)' % (pkeys[ff], ff))
@@ -532,24 +559,24 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         ax2 = fig4.add_subplot(212)
         fig4.subplots_adjust(0.18, 0.13, 0.97, 0.93, hspace=0.5)
         for wa in lnprob:
-            ax1.plot(wa, alpha=0.25) #5./nwalkers)
+            ax1.plot(range(nburn, nburn+nstep), wa, alpha=0.25) #5./nwalkers)
         # if nburn > 0:
         #     ax1.axvspan(0, nburn, facecolor='lightgray', zorder=0, edgecolor='None')
-        ax1.set_xlim(-nstep*0.01, nstep+(nstep*0.01))
+        ax1.set_xlim(nburn - nstep*0.01, nburn + nstep + (nstep*0.01))
         # ax1.set_xlabel('Step', fontsize=fontSize+1)
         ax1.set_ylabel('ln prob', fontsize=fontSize+1)
-        ax1.set_title('ln(prob) at each step: Ntemp=%d' % ntemp_view, fontsize=fontSize+1)
+        ax1.set_title('ln(prob) at each iteration: Ntemp=%d' % ntemp_view, fontsize=fontSize+1)
         # for wa in lnprob:
         #     ax2.plot(np.exp(wa), alpha=0.15) #5./nwalkers)
         ax2.axhline(y=0, c='gray')
         for stp in range(nstep):
-            ax2.plot(stp, np.where(np.isnan(lnprob[:,stp]))[0].size, c='C1', marker='.', markersize=10)
-            ax2.plot(stp, np.where(lnprob[:,stp]==-np.inf)[0].size, 'k.', markersize=6)
+            ax2.plot(nburn + stp, np.where(np.isnan(lnprob[:,stp]))[0].size, c='C1', marker='.', markersize=10)
+            ax2.plot(nburn + stp, np.where(lnprob[:,stp]==-np.inf)[0].size, 'k.', markersize=6)
         # if nburn > 0:
         #     ax2.axvspan(0, nburn, facecolor='lightgray', zorder=0, edgecolor='None')
         ax2.set_ylim(-nwalkers*0.02, nwalkers+1)
-        ax2.set_xlim(-nstep*0.01, nstep+(nstep*0.01))
-        ax2.set_xlabel('Step', fontsize=fontSize+1)
+        ax2.set_xlim(nburn - nstep*0.01, nburn + nstep + (nstep*0.01))
+        ax2.set_xlabel('Iteration', fontsize=fontSize+1)
         ax2.set_ylabel('# walkers', fontsize=fontSize+1)
         ax2.set_title(r'walkers w/ lnprob = -$\infty$ (black) or NaN (orange): Ntemp=%d' % ntemp_view, fontsize=fontSize+1)
         # fig4.tight_layout()
@@ -564,7 +591,14 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         fig6.clf()
         ax1 = fig6.add_subplot(111)
         fig6.subplots_adjust(0.18, 0.13, 0.97, 0.93)
-        ax1.hist(-lnprob.flatten(), bins=100, density=True, cumulative=True, histtype='step')
+        # Clean infs from flattened lnprob for cumulative distribution.
+        lnprob_flat = lnprob.flatten().copy()
+        lnprob_flat[~np.isfinite(lnprob_flat)] = np.median(lnprob_flat[np.isfinite(lnprob_flat)])
+        # Make plt.hist work for old and new matplotlib versions.
+        if mplversion >= 3:
+            ax1.hist(-lnprob_flat, bins=100, density=True, cumulative=True, histtype='step')
+        else:
+            ax1.hist(-lnprob_flat, bins=100, normed=True, cumulative=True, histtype='step')
         # for wa in lnprob:
         #     ax1.plot(wa, alpha=0.25) #5./nwalkers)
         # if nburn > 0:
@@ -603,7 +637,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                 ax = fig7.add_subplot(int(sbpl))
                 ax.axhline(y=0, color='c', linestyle='--')
                 for ac in acf_all[aa]:
-                    ax.plot(ac, c='k', alpha=10./nwalkers)
+                    ax.plot(ac, c='k', alpha=ch_alpha)
                 ax.plot(np.mean(acf_all[aa], axis=0), c='C1', linewidth=1)
                 ax.text(0.7, 0.8, pkeys[aa], color='C1', fontsize=10, weight='bold', transform=ax.transAxes)
                 # Hide all but the bottom axis labels.
@@ -611,6 +645,7 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                     ax.set_yticklabels(['']*ax.get_yticklabels().__len__())
                     ax.set_xticklabels(['']*ax.get_xticklabels().__len__())
                 ax.set_ylim(-1, 1)
+                ax.set_xlabel("Iteration")
                 plt.setp(ax.yaxis.get_majorticklabels(), fontsize=12)
                 plt.setp(ax.xaxis.get_majorticklabels(), fontsize=12)
         fig7.suptitle("Normalized Autocorrelation Functions", fontsize=14)        
@@ -837,6 +872,9 @@ def axMaker(axNum, axRC=None, axSize=[4.3,7], axDim=None, wdw=None, spR=None,
         else:
             spR = np.zeros((R-1, C))
             spR[:] = spR_tmp
+    # Avoid failure if only one row of histograms (i.e., few variables).
+    elif (type(spR) == np.ndarray) and (len(spR)<=0):
+        spR = np.array([[0]])
     
     # If no column spacing specified, set all to 0.5 in.
     if spC is None:
