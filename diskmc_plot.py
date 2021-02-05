@@ -89,6 +89,19 @@ class sedMcfost:
         return
 
 
+def match_float_decimals(float_list):
+    float_str = np.array(float_list).astype(str)
+    Nchars = [len(ii) for ii in float_str]
+    float_Nchars_good = []
+    for nn, float_str in enumerate(float_str):
+        if Nchars[nn] < max(Nchars):
+            float_Nchars_good.append(float_str + (max(Nchars) - Nchars[nn])*'0')
+        else:
+            float_Nchars_good.append(float_str)
+    
+    return float_Nchars_good
+
+
 def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=1, 
                 nstop=None, add_fn=None, add_ind=0,
                 make_maxlk=False, make_medlk=False, lam=1.6, labels_dict=None,
@@ -117,7 +130,8 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         lam: wavelength at which to make maxlk and medlk models [microns].
         labels_dict:
         range_dict:
-        range_dict_tri:
+        range_dict_tri: dict of '[parameter_key]':(low_limit, up_limit) pairs that
+            set the corner plot axis limits for each parameter.
         prior_dict_tri:
         xticks_dict_tri:
         contour_colors: str or list of str matplotlib color names to use as corner
@@ -673,12 +687,6 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
         
         
         # Custom order for corner plot.
-# TEMP!!!
-        # pkeys_tri = np.array(['inc', 'r_critical', 'r_in', 'r_out', 'scale_height',
-        #     'disk_pa', 'debris_disk_vertical_profile_exponent', 'surface_density_exp',
-        #     'gamma_exp', 'dust_mass', 'amin', 'aexp', 'porosity', 'dust_vmax',
-        #     'dust_pop_0_mass_fraction', 'dust_pop_1_mass_fraction',
-        #     'dust_pop_2_mass_fraction'])
         pkeys_tri = pkeys.copy()
         # Tack any other keys onto the end of pkeys_tri.
         if np.any(~np.in1d(pkeys, pkeys_tri)):
@@ -703,6 +711,11 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
             elif params_medlk['disk_pa'] >= 270:
                 samples_tri[:, np.where(tri_incl=='disk_pa')[0]] = samples_tri[:, np.where(tri_incl=='disk_pa')[0]] - 270.
         
+# TEMP!!! Modify corner plot parameter labels.
+        labels_dict['dust_mass'] = '$log_{10}M_d$'
+        labels_dict['alpha_in'] = '$\\gamma_1$'
+        labels_dict['alpha_out'] = '$\\gamma_2$'
+        
         labels_tri = [labels_dict[key] for key in tri_incl]
         if range_dict_tri is not None:
             range_tri = []
@@ -723,8 +736,9 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                                 show_titles=False, verbose=True, max_n_ticks=3,
                                 plot_datapoints=True, plot_contours=True, fill_contours=True,
                                 range=range_tri, plot_density=False,
-                                data_kwargs={'color':'0.6', 'alpha':0.2, 'ms':1.},
-                                contour_kwargs={'colors':contour_colors}) #, hist_kwargs=dict(align='left'))
+                                data_kwargs={'color':'0.6', 'alpha':0.2, 'ms':1.},)
+                                # data_kwargs={'color':'0.3', 'alpha':0.2, 'ms':1.},)
+                                # contour_kwargs={'colors':contour_colors}) #, hist_kwargs=dict(align='left'))
         
         # Adjust figure/axes attributes after creation.
         # fig_tri.set_size_inches(18, fig_tri.get_size_inches()[1], forward=True)
@@ -748,9 +762,15 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
                             elif rr==cc:
                                 ax.yaxis.set_visible(False)
                         if ax==ax_list[-1]:
-                            ax.set_xticklabels(xticks_dict_tri[tri_incl[cc]])
+                            # Match number of decimals to longest float in list.
+                            xticks_Nchars_good = match_float_decimals(xticks_dict_tri[tri_incl[cc]])
+                            # ax.set_xticklabels(xticks_dict_tri[tri_incl[cc]])
+                            ax.set_xticklabels(xticks_Nchars_good)
                         if ((cc==0) and (rr > 0)):
-                            ax.set_yticklabels(xticks_dict_tri[tri_incl[rr]])
+                            # Match number of decimals to longest float in list.
+                            yticks_Nchars_good = match_float_decimals(xticks_dict_tri[tri_incl[rr]])
+                            # ax.set_yticklabels(xticks_dict_tri[tri_incl[rr]])
+                            ax.set_yticklabels(yticks_Nchars_good)
                 except:
                     continue
         
@@ -760,10 +780,11 @@ def mc_analyze(s_ident, path='.', partemp=True, ntemp_view=None, nburn=0, nthin=
             ax.tick_params(axis='y', which='both', pad=1) # reduce space between ticks and tick labels
             plt.setp(ax.yaxis.get_majorticklabels(), rotation=0) # make y tick labels horizontal
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=70) # make x tick labels more vertical
-            ax.xaxis.set_label_coords(0.5, -0.05 - ndim*0.06) # move x labels downward
+            # ax.xaxis.set_label_coords(0.5, -0.05 - ndim*0.06) # move x labels downward
+            ax.xaxis.set_label_coords(0.5, -0.25 - ndim*0.06) # move x labels downward
             ax.yaxis.set_label_coords(-0.03 - ndim*0.06, 0.5) # move y labels leftward
         # Adjust margins of figure.
-        plt.subplots_adjust(bottom=0.1, top=0.99, left=0.09, right=0.99)
+        plt.subplots_adjust(bottom=0.11, top=0.99, left=0.09, right=0.99)
         
         # Middle diagonal is tri_axes[ii*samples_tri.shape[1] + ii] for ii in range(0,samples_tri.shape[1]).
         tri_diag = [tri_axes[ii*samples_tri.shape[1] + ii] for ii in range(0,samples_tri.shape[1])]

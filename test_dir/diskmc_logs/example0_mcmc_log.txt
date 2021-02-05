@@ -1,0 +1,43 @@
+|---MCMC LOG---|
+
+example0
+LOG DATE: 2021-02-05
+JOB START: Fri Feb  5 14:25:31 2021
+NPROCESSORS: 4
+
+diskmc version: 0.2.0
+MCFOST version: 3.0.33
+MCFOST PARFILE: /Users/Tom/Research/Python/diskmc/test_dir/diskmc_init_example0.para
+
+MCMC PARAMS: Ndim: 3, Nwalkers: 20, Nburn: 2, Niter: 5, Nthin: 1, Nthreads: 4
+PARALLEL-TEMPERED?: True , Ntemps: 2
+INITIALIZATION: uniform
+a = 2.00
+Wavelength = 1.647 microns
+
+Sampler logged at iteration FINAL as /Users/Tom/Research/Python/diskmc/test_dir/diskmc_logs/example0_mcmc_full_sampler.hkl
+
+|--- RESULTS FOR ALL ITERATIONS (NO BURN-IN EXCLUDED) ---|
+
+Mean, Median Acceptance Fractions (zeroth temp): 0.30, 0.20
+
+MAX-LIKELIHOOD PARAM VALUES:
+aexp = 3.925e+00
+amin = 3.628e-01
+dust_mass = -7.698e+00
+
+50%-LIKELIHOOD PARAM VALUES (50th percentile +/- 1 sigma (i.e., 34%):
+aexp = 3.950 +/- 1.742/0.455
+amin = 0.566 +/- 0.494/0.617
+dust_mass = -7.728 +/- 0.669/0.449
+
+Max-Likelihood total chi2_red: 1.506e+00
+individual chi2_red's: 1.506e+00 | 
+
+50%-Likelihood total chi2_red: 1.520e+00
+individual chi2_red's: 1.520e+00 | 
+
+START TIME - END TIME: Fri Feb  5 14:25:31 2021 - Fri Feb  5 14:32:26 2021
+ELAPSED TIME: 6.93 minutes = 0.12 hours
+
+SUCCESSFUL EXIT

@@ -3,15 +3,12 @@
 # which is not publicly available (Christophe Pinte et al. 2006, 2009).
 
 ### Python packages ###
-python == 2.7.*		# Not yet Python 3.x compatible
+python >= 2.7		# Also Python 3.x compatible
 numpy >= 1.13
 matplotlib >= 2.0.0
 scipy >= 0.19.0
-emcee == 2.2.1
+emcee >= 2.2.1		# Requires emcee v2.2.1 for parallel-tempered MCMC's
 astropy >= 2.0.2
 hickle >= 2.0.0
 acor >= 1.1.1
 corner >= 2.0.0
-
-### Github packages ###
-mcfost-python # https://github.com/cpinte/mcfost-python.git

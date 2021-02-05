@@ -4,28 +4,39 @@ A Python framework for running a Markov Chain Monte Carlo (MCMC) with models of 
 
 Note that this package does not include MCFOST itself (Pinte et al. 2006, 2009) and will not run without it.
 
-DiskMC is partly based on [`mcfost-python`](https://github.com/cpinte/mcfost-python) and is still dependent on some of its components.
+DiskMC is partly based on [`mcfost-python`](https://github.com/mperrin/mcfost-python). In particular, it directly incoporates `paramfiles.py` from that package to write parameter files (credit for that bit to the mcfost-python developers). A newer version of MCFOST<->Python interaction tools is being developed at https://github.com/cpinte/pymcfost.
 
 ## Documentation ##
 
-**_Only Python 2.7 compatible._** Python 3 support is on its way.
+**_Python 2.7 and 3.x compatible._**
+To run a parallel-tempered MCMC, you will need `emcee` v2.2.1. Single temperature Ensemble samplers will work with v2.2.1 or 3.0.
 
 _More extensive documentation is to come. The source code is heavily commented and is the best resource at the moment._
 
-The core of DiskMC is in `diskmc.py`, where `diskmc.mc_main` is the function to call the MCMC itself. An example script to load data, set MCMC parameters, and start a run is provided in `run_diskmc.py`. Currently, that script loads external data files that are not provided here, so those (two or three) specific paths will need to be edited for it to run on your system. Nevertheless, an example command to start an MCMC from the command line would be:
-
-`python run_diskmc.py example0 2 20 10 5`
-
-This will start an MCMC named "example0" that uses 2 parallel temperatures, 20 walkers, 10 iterations, and 5 burn-in iterations. This is an extremely short run as far as MCMC's are considered, and just serves to get you started. See the `run_diskmc.py` source code for explanations of the input arguments and other options not shown here.
+The core of DiskMC is in `diskmc.py`, where `diskmc.mc_main` is the function to call the MCMC itself. You can call diskmc.py directly as a script to initiate an MCMC, ideally with a preparatory wrapper script like the `run_diskmc.py` example. It is there that you can specify input data, MCFOST variables to vary, MCMC priors, data masks, and more.
 
 ### MCMC Visualization ###
 
-Some basic visualization tools are provided in `diskmc_plot.py` to analyze the MCMC output. With `diskmc_plot.mc_analyze` you can get posterior distributions, plot walker chains, plot time-step histograms, and make corner plots. An example function call to do this for the MCMC above would be:
+Some basic visualization tools are provided in `diskmc_plot.py` to analyze the MCMC output. With `diskmc_plot.mc_analyze` you can get posterior distributions, plot walker chains, plot time-step histograms, and make corner plots.
+
+### Test on Example Data ###
+
+Example input files for testing are included in the `test_dir` directory. An example script to load those data, set MCMC parameters, and start a short run is provided in `run_diskmc.py`. The example command to start an MCMC from the command line is, to be run from within the `diskmc/` directory, is:
+
+`python run_diskmc.py example0 2 20 10 5`
+
+This will start an MCMC named "example0" that uses 2 parallel temperatures, 20 walkers, 10 iterations, and 5 burn-in iterations. It varies 3 MCFOST model parameters: minimum grain size "amin", grain size distribution power law index "aexp", and log10 dust mass "dust_mass". This is an extremely short run as far as MCMC's are considered, and just serves to get you started. See the `run_diskmc.py` source code for explanations of the input arguments and other options not shown here.
+
+Output from the test should be a .txt log file and an .hkl file of the HDF5 compressed emcee sampler components in `diskmc_logs/`. There should also be a new directory named `diskmc_example0` that contains subdirectories with FITS cubes ("RT.fits.gz") of the maximum-likelihood ("maxlk") and median-likelihood ("medlk") models resulting from the MCMC.
+
+To visualize the results for the zeroth temperature walkers, the function call from an interactive Python session is:
 
 ```
-from diskmc_plot import mc_analyze
-mc_analyze(s_ident='example0', path='~/Desktop/test_dir/diskmc_logs/', ntemp_view=0, partemp=True)
+from diskmc.diskmc_plot import mc_analyze
+mc_analyze(s_ident='example0', path='test_dir/diskmc_logs/', ntemp_view=0, partemp=True)
 ```
+
+NOTE: hickle will usually only load .hkl files that were created with a similar version; e.g., using hickle+Python3 to load a sampler saved with hickle+Python2.7 often fails. The example sampler in test_dir was created with Python2.7, so you will likely need to use that to open it.
 
 ## Attribution ##
 

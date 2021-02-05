@@ -8,7 +8,7 @@ __author__ = 'Tom Esposito'
 __copyright__ = 'Copyright 2018, Tom Esposito'
 __credits__ = ['Tom Esposito']
 __license__ = 'GNU General Public License v3'
-__version__ = '0.1.2'
+__version__ = '0.2.0'
 __maintainer__ = 'Tom Esposito'
 __email__ = 'espos13@gmail.com'
 __status__ = 'Development'
@@ -31,6 +31,8 @@ from astropy.io import fits
 from astropy import constants
 from scipy.ndimage import zoom
 
+import emcee
+emcee_version_major = int(emcee.__version__.split('.')[0])
 try:
     import acor
 except ImportError:
@@ -43,13 +45,12 @@ except ImportError:
 #from mpi4py import MPI
 
 if sys.version_info.major >= 3:
-    from diskmc.diskmc_tools import get_ann_stdmap, make_radii, get_radial_stokes
+    from diskmc_tools import get_ann_stdmap, make_radii, get_radial_stokes
+    from paramfiles import Paramfile
 else:
     from diskmc_tools import get_ann_stdmap, make_radii, get_radial_stokes
-#import pyklip.instruments.GPI as GPI
-#from pyklip import parallelized, klip, fm
-#from pyklip.fmlib import diskfm
-from mcfost.paramfiles import Paramfile
+    from paramfiles import Paramfile
+
 
 # !!!WARNING!!! Ignoring some annoying warnings about FITS files.
 from astropy.utils.exceptions import AstropyWarning
@@ -65,7 +66,7 @@ class MCData:
     """
     
     def __init__(self, data, data_types, stars, uncerts, bin_facts=None, mask_params=None,
-                 s_ident='no_ident'):
+                 s_ident='no_ident', algo_I=None):
         """
         Initialization code for MCData.
         
@@ -82,6 +83,8 @@ class MCData:
                 only applies to images and should be None for all others.
             mask_params: not implemented.
             s_ident: str identifier for the MCMC run; no spaces allowed.
+            algo_I: total intensity PSF subtraction algorithm used, to set correct
+                forward modeling method; 'pyklip' is only option right now.
         """
         
         self.data = data
@@ -91,6 +94,7 @@ class MCData:
         self.bin_facts = bin_facts
         self.mask_params = mask_params
         self.s_ident = s_ident
+        self.algo_I = algo_I
 
 
 class MCMod:
@@ -101,7 +105,8 @@ class MCMod:
     def __init__(self, pkeys, parfile, pmeans_lib=None, psigmas_lib=None,
                  plims_lib=None, priors=None, scatlight=True, fullimg=False,
                  sed=False, dustprops=False, lam=1., unit_conv=1.,
-                 mod_bin_factor=None, model_path='.', log_path='.', s_ident='no_ident'):
+                 mod_bin_factor=None, model_path='.', log_path='.', s_ident='no_ident',
+                 modfm=None, fm_params=None):
         """
         Initialization code for MCMod.
         
@@ -133,6 +138,9 @@ class MCMod:
                 model output.
             log_path: str path to directory for diskmc logs to go into.
             s_ident: str identifier for the MCMC run; no spaces allowed.
+            modfm: for total intensity forward modeling, either a DiskFM object
+                already prepared or True to build a DiskFM object based on fm_params.
+            fm_params: library of 
         """
         
         self.pkeys = pkeys
@@ -153,6 +161,53 @@ class MCMod:
         self.s_ident = s_ident
         self.pl = None
         self.pl_dict = None
+        self.modfm = modfm
+        self.fm_parmas = fm_params
+
+
+def log_sampler(sampler, sampler_keys_trim, log_path, s_ident, nn):
+    """
+    Function to save important sampler items to log file for later use.
+    
+    Returns a str message about the logging results.
+    """
+    log_message = 'No log message'
+
+    sampler_dict = sampler.__dict__.copy()
+
+    if emcee_version_major >= 3:
+        sampler_dict['_chain'] = sampler.chain.copy()
+        sampler_dict['_lnprob'] = sampler.lnprobability.copy()
+
+    try:
+        # Delete some items from the sampler that may not hickle well.
+        for item in sampler_keys_trim:
+            try:
+                sampler_dict.__delitem__(item)
+            except:
+                continue
+        log_name = os.path.join(log_path, '{}_mcmc_full_sampler.hkl'.format(s_ident))
+        hickle.dump(sampler_dict, log_name, mode='w')
+    # If hickle fails, try to pickle the full sampler.
+    except NotImplementedError as ee:
+        log_name = os.path.join(log_path, '{}_mcmc_full_sampler.pkl'.format(s_ident))
+        log_message = "WARNING: Sampler pickled (hickle FAILED) at iteration {0!s} as {1}\nHickle error was: {2}".format(nn, log_name, ee)
+        with open(log_name, 'w+') as pickle_log:
+            pickle.dump(sampler_dict, pickle_log, protocol=2)
+        # print("Hickle error was: %s" % ee)
+    # If hickle and pickle both fail, just log the chain array only.
+    except Exception as ee:
+        # print("WARNING: Logging sampler FAILED at iteration {!s}!".format(nn))
+        # print("Error was: %s" % ee)
+        log_name = os.path.join(log_path, '{}_mcmc_full_chain_gzip.hkl'.format(s_ident))
+        log_message = "WARNING: Logging sampler FAILED at iteration {0!s}!\nError was: {1}\nLogged the MCMC CHAIN ONLY (all temps) as {2}".format(nn, ee, log_name)
+        hickle.dump(sampler.chain, log_name, mode='w', compression='gzip', compression_opts=7)
+    else:
+        log_message = "Sampler logged at iteration {0!s} as {1}".format(nn, log_name)
+
+    print(log_message)
+
+    return log_message
 
 
 # Define your prior function here. The value that it returns will be added
@@ -261,7 +316,7 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
     if fnstring is None:
         fnstring = "%s_mcmc_%s%.5e" % (s_ident, pkeys[0], pl_dict[pkeys[0]])
     
-    modeldir = model_path + fnstring
+    modeldir = os.path.join(model_path, fnstring)
     try:
         os.mkdir(modeldir)
     except OSError:
@@ -305,7 +360,7 @@ def make_mcfmod(pkeys, pl_dict, parfile, model_path, s_ident='', fnstring=None,
 
 
 def chi2_morph(path, data, uncerts, data_types, mod_bin_factor,
-               phi_stokes, unit_conv):
+               phi_stokes, unit_conv, algo_I=None, modfm=None):
     """
     Calculate simple chi-squared for each data-model pair. Only pertains to
     morphological models (i.e., images) and not SED's, photometry, etc.
@@ -326,11 +381,11 @@ def chi2_morph(path, data, uncerts, data_types, mod_bin_factor,
             if dt == 'I':
                 mod_use = model[0,0,0,:,:]  # [W/m^2...]
  # FIX ME!!! Total intensity ADI forward modeling is currently disabled.
-                # if algo=='loci':
-                #     mod_use = do_fm_loci(dataset, mod_use.copy(), c_list)
-                # elif algo=='pyklip':
-                #     # Forward model to match the KLIP'd data.
-                #     mod_use = do_fm_pyklip(modfm, dataset, model_I.copy())
+                if algo_I == 'loci':
+                    mod_use = do_fm_loci(dataset, mod_use.copy(), c_list)
+                elif algo_I == 'pyklip':
+                    # Forward model to match the KLIP'd data.
+                    mod_use = do_fm_pyklip(modfm, dataset, model_I.copy())
             
             # Radial Stokes Q polarized intensity (i.e., Q_phi or Qr).
             elif dt == 'Qr':
@@ -360,7 +415,7 @@ def chi2_morph(path, data, uncerts, data_types, mod_bin_factor,
 
 def mc_lnlike(pl, pkeys, data, uncerts, data_types, mod_bin_factor, phi_stokes,
              parfile, model_path, unit_conv, priors, scatlight, fullimg, sed, dustprops,
-             lam, partemp, ndim, write_model, s_ident):
+             lam, partemp, ndim, write_model, s_ident, algo_I=None, modfm=None):
     """
     Computes and returns the natural log of the likelihood value
     for a given model.
@@ -395,18 +450,18 @@ def mc_lnlike(pl, pkeys, data, uncerts, data_types, mod_bin_factor, phi_stokes,
         return -np.inf
     
     # Calculate Chi2 for all images in data.
-    chi2s = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
+    chi2s = chi2_morph(os.path.join(model_path, fnstring, 'data_%s' % str(lam)),
                         data, uncerts, data_types, mod_bin_factor,
-                        phi_stokes, unit_conv)
+                        phi_stokes, unit_conv, algo_I=algo_I, modfm=modfm)
     # # Calculate reduced Chi2 for images.
     # chi2_red_Qr = chi2_Qr/(np.where(np.isfinite(data_Qr))[0].size - ndim)
     
     if not write_model:
         try:
-            rmtree(model_path+fnstring)
+            rmtree(os.path.join(model_path, fnstring))
         except:
             time.sleep(0.5)
-            subprocess.call('rm -rf %s' % model_path+fnstring, shell=True)
+            subprocess.call('rm -rf %s' % os.path.join(model_path, fnstring), shell=True)
             time.sleep(0.5)
     
     # lnpimage = -0.5*np.log(2*np.pi)*uncertainty_I.size - 0.5*imagechi - np.nansum(-np.log(uncertainty_I))
@@ -424,13 +479,25 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     
     print("\nSTART TIME: " + start)
     
+# TEMP!!!
+    # For now, emcee v3.* offers only an EnsembleSampler, so force that mode
+    # if such a version is detected.
+    if (ntemps > 1) and (emcee_version_major >= 3):
+        ntemps = 1
+        partemp = False
+        emcee_v3_msg = "WARNING! FORCED to use EnsembleSampler because emcee v3+ detected. Setting ntemps=1 and partemp=False."
+        print("\n" + emcee_v3_msg)
+        print("To use a PTSampler, try the ptemcee package (NOT currently compatible with diskmc) or using emcee v2.2.1.")
+    else:
+        emcee_v3_msg = None
+    
     data = mcdata.data
     uncerts = mcdata.uncerts
     data_types = np.array(mcdata.data_types) # need as nd.array for later
     stars = mcdata.stars
     
-    model_path = mcmod.model_path
-    log_path = mcmod.log_path
+    model_path = os.path.join(os.path.abspath(os.path.expanduser(mcmod.model_path)), '')
+    log_path = os.path.join(os.path.abspath(os.path.expanduser(mcmod.log_path)), '')
     lam = mcmod.lam # [microns]
     unit_conv = mcmod.unit_conv
     
@@ -439,7 +506,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     pkeys_all = np.array(sorted(mcmod.pkeys))
     
     # Create log file.
-    mcmc_log_fn = log_path + '%s_mcmc_log.txt' % s_ident
+    mcmc_log_fn = os.path.join(log_path, '%s_mcmc_log.txt' % s_ident)
     mcmc_log = open(mcmc_log_fn, 'w')
     
  # FIX ME!!! Need to handle this specific case better.
@@ -524,7 +591,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     else:
         init_type == 'sampled'
         init_step_ind = -1
-        init_samples = hickle.load(log_path + init_samples_fn)
+        init_samples = hickle.load(os.path.join(log_path, init_samples_fn))
         if partemp:
             p0 = init_samples['_chain'][:,:,init_step_ind,:]
             lnprob_init = init_samples['_lnprob'][:,:,init_step_ind]
@@ -559,40 +626,77 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                         '\n',
                         ]
     mcmc_log.writelines(log_preamble)
+    if emcee_v3_msg is not None:
+        mcmc_log.writelines('\n{}\n'.format(emcee_v3_msg))
     mcmc_log.close()
-    
+
     # Create emcee sampler instances: parallel-tempered or ensemble.
     if partemp:
+        # Instantiate parallel-tempered sampler.
         # Pass data_I, uncertainty_I, and parfile as arguments to emcee sampler.
         sampler = PTSampler(ntemps, nwalkers, ndim, mc_lnlike, mc_lnprior, a=mc_a,
                       loglargs=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
                         phi_stokes, mcmod.parfile, model_path, unit_conv, mcmod.priors,
                         mcmod.scatlight, mcmod.fullimg, mcmod.sed, mcmod.dustprops,
-                        lam, partemp, ndim, write_model, s_ident],
+                        lam, partemp, ndim, write_model, s_ident,
+                        mcdata.algo_I, mcmod.modfm],
                       logpargs=[pkeys_all, mcmod.priors],
                         threads=nthreads)
                       #pool=pool)
     
     else:
-        sampler = EnsembleSampler(nwalkers, ndim, mc_lnlike, a=mc_a,
-                      args=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
+        # Instantiate ensemble sampler.
+        if emcee_version_major >= 3:
+            # Put backend setup here for some future use.
+            # backend_log_name = os.path.join(log_path, '{}_mcmc_full_sampler.h5'.format(s_ident))
+            # backend = emcee.backends.HDFBackend(backend_log_name, name='mcmc')
+            # backend.reset(nwalkers, ndim)
+            # 
+            # vars(backend)['pkeys_all'] = pkeys_all
+            backend = None
+            
+            from multiprocessing import Pool
+            pool = Pool()
+            
+            sampler = EnsembleSampler(nwalkers, ndim, mc_lnlike, a=mc_a,
+                        args=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
                         phi_stokes, mcmod.parfile, model_path, unit_conv, mcmod.priors,
                         mcmod.scatlight, mcmod.fullimg, mcmod.sed, mcmod.dustprops,
-                        lam, partemp, ndim, write_model, s_ident],
+                        lam, partemp, ndim, write_model, s_ident,
+                        mcdata.algo_I, mcmod.modfm],
+                        pool=pool,
+                        backend=backend)
+            # Add some items to sampler that don't exist in emcee >2.2.1.
+            vars(sampler)['_chain'] = np.array([])
+            vars(sampler)['_lnprob'] = np.array([])
+        else:
+            sampler = EnsembleSampler(nwalkers, ndim, mc_lnlike, a=mc_a,
+                        args=[pkeys_all, data, uncerts, data_types, mcmod.mod_bin_factor,
+                        phi_stokes, mcmod.parfile, model_path, unit_conv, mcmod.priors,
+                        mcmod.scatlight, mcmod.fullimg, mcmod.sed, mcmod.dustprops,
+                        lam, partemp, ndim, write_model, s_ident,
+                        mcdata.algo_I, mcmod.modfm],
                         threads=nthreads)
+
+    # Insert pkeys and priors into the sampler dict for later use.
+    # Force '|S' string dtype to avoid unicode (which doesn't hickle well).
+    vars(sampler)['pkeys_all'] = pkeys_all.astype('S')
+    vars(sampler)['priors'] = mcmod.priors.copy()
     
-    # Insert pkeys into the sampler dict for later use.
-    sampler.__dict__['pkeys_all'] = pkeys_all
+    # List of items to delete from the sampler dict that may not hickle well during
+    # logging. Mix of emcee v2 and v3, Ensemble, and PTSampler items.
+    sampler_keys_trim = ['pool', 'lnprobfn', 'log_prob_fn', 'runtime_sortingfn',
+                        'logl', 'logp', 'logpkwargs', 'loglkwargs', 'args',
+                        'kwargs', '_random', '_moves', '_previous_state', 'backend']
 
 
     ###############################
     # ------ BURN-IN PHASE ------ #
-    
     if nburn > 0:
         print("\nBURN-IN START...\n")
         for bb, (pburn, lnprob_burn, lnlike_burn) in enumerate(sampler.sample(p0, iterations=nburn)):
             # Print progress every 25%.
-            if bb in [nburn/4, nburn/2, 3*nburn/4]:
+            if bb in [nburn//4, nburn//2, 3*nburn//4]:
                 print("PROCESSING ITERATION %d; BURN-IN %.1f%% COMPLETE..." % (bb, 100*float(bb)/nburn))
             pass
 
@@ -617,13 +721,13 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         print("BURN-IN COMPLETE!")
 
     elif (nburn==0) & (init_samples_fn is not None):
-        print("Walkers initialized from file and no burn-in samples requested.")
+        print("\nWalkers initialized from file and no burn-in samples requested.")
         sampler.reset()
         pburn = p0
         lnprob_burn = None #lnprob_init 
         lnlike_burn = None #lnlike_init
     else:
-        print("No burn-in samples requested.")
+        print("\nNo burn-in samples requested.")
         pburn = p0
         lnprob_burn = None
         lnlike_burn = None
@@ -636,67 +740,18 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     if partemp:
         for nn, (pp, lnprob, lnlike) in enumerate(sampler.sample(pburn, lnprob0=lnprob_burn, lnlike0=lnlike_burn, iterations=niter)):
             # Print progress every 25%.
-            if nn in [niter/4, niter/2, 3*niter/4]:
+            if nn in [niter//4, niter//2, 3*niter//4]:
+                print("Processing iteration %d; MCMC %.1f%% complete..." % (nn, 100*float(nn)/niter))
+                if emcee_version_major < 3:
+                    # Log the full sampler or chain (all temperatures) every so often.
+                    log_message = log_sampler(sampler, sampler_keys_trim, log_path, s_ident, nn)
+    else:
+        for nn, (pp, lnprob, lnlike) in enumerate(sampler.sample(pburn, lnprob_burn, iterations=niter)):
+            # Print progress every 25%.
+            if nn in [niter//4, niter//2, 3*niter//4]:
                 print("Processing iteration %d; MCMC %.1f%% complete..." % (nn, 100*float(nn)/niter))
                 # Log the full sampler or chain (all temperatures) every so often.
-                sampler_dict = sampler.__dict__.copy()
-                try:
-                    # Delete some items from the sampler that may not hickle well.
-                    for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
-                        try:
-                            sampler_dict.__delitem__(item)
-                        except:
-                            continue
-                    log_name = log_path + '%s_mcmc_full_sampler.hkl' % s_ident
-                    hickle.dump(sampler_dict, log_name, mode='w')
-                # If hickle fails, try to pickle the full sampler.
-                except NotImplementedError as ee:
-                    log_name = log_path + '%s_mcmc_full_sampler.pkl' % s_ident
-                    with open(log_name, 'w+') as pickle_log:
-                        pickle.dump(sampler_dict, pickle_log)
-                    print("WARNING: Sampler pickled (hickle FAILED) at iteration %d as %s" % (nn, log_name))
-                    print("Hickle error was: %s" % ee)
-                # If hickle and pickle both fail, just log the chain array only.
-                except Exception as ee:
-                    print("WARNING: Logging sampler FAILED at iteration %d!" % nn)
-                    print("Error was: %s" % ee)
-                    log_name = log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident
-                    hickle.dump(sampler.chain, log_name, mode='w', compression='gzip', compression_opts=7)
-                    print("Logged the MCMC CHAIN ONLY (all temps) as %s" % log_name)
-                else:
-                    print("Sampler logged at iteration %d as %s" % (nn, log_name))
-    else:
-        for nn, (pp, lnprob, lnlike) in enumerate(sampler.sample(pburn, lnprob0=lnprob_burn, iterations=niter)):
-            # Print progress every 25%.
-            if nn in [niter/4, niter/2, 3*niter/4]:
-                print("Processing iteration %d; MCMC %.1f%% complete..." % (nn, 100*float(nn)/niter))
-                # Log the full sampler or chain every so often.
-                sampler_dict = sampler.__dict__.copy()
-                try:
-                    # Delete some items from the sampler that don't hickle well.
-                    for item in ['pool', 'lnprobfn', 'runtime_sortingfn',
-                                '_random', 'kwargs', 'logl', 'logp',
-                                'logpkwargs', 'loglkwargs']:
-                        try:
-                            sampler_dict.__delitem__(item)
-                        except:
-                            continue
-                    log_name = log_path + '%s_mcmc_full_sampler.hkl' % s_ident
-                    hickle.dump(sampler_dict, log_name, mode='w')
-                except NotImplementedError as ee:
-                    log_name = log_path + '%s_mcmc_full_sampler.pkl' % s_ident
-                    with open(log_name, 'w+') as pickle_log:
-                        pickle.dump(sampler_dict, pickle_log)
-                    print("WARNING: Sampler pickled (hickle FAILED) at iteration %d as %s" % (nn, log_name))
-                    print("Hickle error was: %s" % ee)
-                except Exception as ee:
-                    print("WARNING: Logging sampler FAILED at iteration %d!" % nn)
-                    print("Error was: %s" % ee)
-                    log_name = log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident
-                    hickle.dump(sampler.chain, log_name, mode='w', compression='gzip', compression_opts=7)
-                    print("Logged the MCMC CHAIN ONLY as %s" % log_name)
-                else:
-                    print("Sampler logged at iteration %d as %s" % (nn, log_name))
+                log_message = log_sampler(sampler, sampler_keys_trim, log_path, s_ident, nn)
     
     
     print('\nMCMC RUN COMPLETE!\n')
@@ -710,40 +765,8 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     # If possible, save the whole sampler to an HDF5 log file (could be large).
     # If that fails because hickle won't handle something in the sampler,
     # try to pickle it instead. If that still fails, just log the sampler chains.
-    sampler_dict = sampler.__dict__.copy()
-    try:
-        # Delete some items from the sampler that may not hickle well.
-        if partemp:
-            for item in ['pool', 'logl', 'logp', 'logpkwargs', 'loglkwargs']:
-                try:
-                    sampler_dict.__delitem__(item)
-                except:
-                    continue
-        else:
-            for item in ['pool', 'lnprobfn', 'runtime_sortingfn', '_random', 'kwargs']:
-                try:
-                    sampler_dict.__delitem__(item)
-                except:
-                    continue
-        log_name = log_path + '%s_mcmc_full_sampler.hkl' % s_ident
-        hickle.dump(sampler_dict, log_name, mode='w')
-    # If hickle fails, try to pickle the full sampler.
-    except NotImplementedError as ee:
-        log_name = log_path + '%s_mcmc_full_sampler.pkl' % s_ident
-        with open(log_name, 'w+') as pickle_log:
-            pickle.dump(sampler_dict, pickle_log)
-        log_message = "WARNING: Final sampler pickled (hickle FAILED) as %s\nHickle error was: %s" % (log_name, ee)
-        print(log_message)
-    # If hickle and pickle both fail, just log the chain array only.
-    except Exception as ee:
-        print("WARNING: Logging final sampler FAILED!\nError was: %s" % ee)
-        log_name = log_path + '%s_mcmc_full_chain_gzip.hkl' % s_ident
-        hickle.dump(sampler.chain, log_name, mode='w', compression='gzip', compression_opts=7)
-        print("Logged the MCMC CHAIN ONLY (all temps) as %s" % log_name)
-        log_message = "WARNING: Logging final sampler FAILED!\nError was: %s\nLogged the MCMC CHAIN ONLY (all temps) as %s" % (ee, log_name)
-    else:
-        log_message = "Final sampler logged as %s" % log_name
-        print(log_message)
+    # if emcee_version_major < 3:
+    log_message = log_sampler(sampler, sampler_keys_trim, log_path, s_ident, 'FINAL')
 
 
     # Chain has shape (ntemps, nwalkers, nsteps/nthin, ndim).
@@ -806,8 +829,8 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     
     # Get median values (50th percentile) and 1-sigma (68%) confidence intervals
     # for each parameter (in order +, -).
-    params_med_mcmc = map(lambda vv: (vv[1], vv[2]-vv[1], vv[1]-vv[0]),
-                        zip(*np.percentile(samples, [16, 50, 84], axis=0)))
+    params_med_mcmc = list(map(lambda vv: (vv[1], vv[2]-vv[1], vv[1]-vv[0]),
+                        zip(*np.percentile(samples, [16, 50, 84], axis=0))))
     
     print("\nMax-Likelihood Param Values:")
     mcmc_log.writelines('\n\nMAX-LIKELIHOOD PARAM VALUES:')
@@ -845,7 +868,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
                     fnstring, lam=lam, scatlight=mcmod.scatlight, fullimg=mcmod.fullimg)
         
         # Calculate Chi2 for images.
-        chi2s = chi2_morph(model_path+fnstring+'/data_%s' % str(lam),
+        chi2s = chi2_morph(os.path.join(model_path, fnstring, 'data_%s' % str(lam)),
                             data, uncerts, data_types, mcmod.mod_bin_factor, phi_stokes, unit_conv)
         # Calculate reduced Chi2 for images.
         chi2_reds = np.array([chi2s[ii]/(np.where(np.isfinite(data[ii].filled(np.nan)))[0].size - ndim) for ii in range(len(data))])
@@ -868,7 +891,7 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
         
         # Make image, sed, and/or dust properties models for maxlk and medlk.
         try:
-            os.chdir(model_path + fnstring)
+            os.chdir(os.path.join(model_path, fnstring))
             # Make the dust properties at proper wavelength.
             # NOTE: This must come before the image calculation at the same
             # wavelength, otherwise MCFOST automatically deletes the image directory!
@@ -908,9 +931,9 @@ def mc_main(s_ident, ntemps, nwalkers, niter, nburn, nthin, nthreads,
     # Close MPI pool.
     try:
         pool.close()
-        print("\nMPI Pool closed")
+        print("\nPool closed")
     except:
-        print("\nNo MPI pools to close.")
+        print("\nNo Pool to close.")
     
     print("\nmc_main function finished\n")
     

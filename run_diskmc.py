@@ -59,12 +59,13 @@ else:
 
 # CUSTOMIZE these paths to match your personal directory setup.
 
-model_path = os.path.expanduser('~/Desktop/test_dir/diskmc_%s/' % s_ident)
-log_path = os.path.expanduser('~/Desktop/test_dir/diskmc_logs/')
+model_path = os.path.join(os.path.abspath(os.path.expanduser('./test_dir/diskmc_%s/' % s_ident)), '')
+log_path = os.path.join(os.path.abspath(os.path.expanduser('./test_dir/diskmc_logs/')), '')
 
 # Path to the MCFOST parameter file that will serve as a template for all
 # MCMC models to be built from.
-parfile = os.path.expanduser('~/Desktop/test_dir/diskmc_init_%s.para' % s_ident)
+# You should tailor this file to your specific model type.
+parfile = os.path.abspath(os.path.expanduser('./test_dir/diskmc_init_%s.para' % s_ident))
 
 # Make a subdirectory for the mcfost models if they will be saved.
 if not os.path.isdir(model_path):
@@ -113,7 +114,7 @@ bin_factor = 2.
 # CUSTOMIZE this section to your data.
 
 # Load radial Stokes Q data from FITS file.
-data_rstokes = fits.getdata(os.path.expanduser('~/path/to/data/example_gpi_rstokes_datacube.fits'))
+data_rstokes = fits.getdata(os.path.expanduser('./test_dir/S20160318S0049_podc_radialstokesdc_sm2_perfwv_flex.01.01_smpol10_stpol2-11_mJy_arcsec-2.fits'))
 data_Qr = data_rstokes[1] # radial Stokes Q channel
 data_Ur = data_rstokes[2] # radial Stokes U channel
 
